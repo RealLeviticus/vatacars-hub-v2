@@ -2,16 +2,19 @@ import React from 'react';
 import { useRouter } from 'next/router';
 import type { AppProps } from 'next/app';
 
-import Header from '../comp/meta/Header';
-import '../comp/index.css';
+import '../components/index.css';
+
+import FlyonuiScript from '../components/meta/FlyonUI';
+import WindowHeader from '../components/meta/WindowHeader';
 
 function MyApp({ Component, pageProps }: AppProps) {
   const router = useRouter();
 
   return (
-    <main className="prevent-select h-screen overflow-hidden bg-slate-900">
-      {router.asPath != '/' && <Header maximiseDisabled={router.asPath == '/welcome/'} />}
+    <main className="prevent-select h-screen overflow-hidden bg-zinc-900 text-zinc-200">
+      {router.asPath != '/' && <WindowHeader />}
       <Component {...pageProps} />
+      <FlyonuiScript />
     </main>
   );
 }
