@@ -11,7 +11,7 @@ function MyApp({ Component, pageProps }: AppProps) {
   const router = useRouter();
 
   return (
-    <main className="prevent-select h-screen overflow-hidden bg-zinc-900 text-zinc-200">
+    <main className="prevent-select h-screen overflow-hidden bg-zinc-800 text-zinc-200">
       {router.asPath != '/' && <WindowHeader />}
       <Component {...pageProps} />
       <FlyonuiScript />
