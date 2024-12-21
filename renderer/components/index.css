@@ -2,6 +2,26 @@
 @tailwind components;
 @tailwind utilities;
 
+html {
+    scroll-behavior: smooth;
+}
+
+input:-webkit-autofill,
+input:-webkit-autofill:focus {
+    -webkit-box-shadow: 0 0 0px 1000px rgb(39 39 42) inset;
+}
+
+.peer:focus~.input-floating-label,
+.peer:focus-within~.input-floating-label,
+.peer:not(:placeholder-shown)~.input-floating-label {
+    background-color: rgb(39 39 42);
+}
+
+.input.input-floating:disabled,
+.input.input-floating[disabled] {
+    background-color: rgb(39 39 42);
+}
+
 .titlebar {
     -webkit-user-select: none;
     -webkit-app-region: drag;
