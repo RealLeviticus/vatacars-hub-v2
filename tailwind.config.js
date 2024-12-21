@@ -3,7 +3,11 @@
 module.exports = {
   purge: {
     mode: 'jit',
-    content: ['./renderer/**/*.html', './renderer/**/*.jsx', './renderer/**/*.tsx'],
+    content: [
+      './renderer/**/*.html',
+      './renderer/**/*.jsx',
+      './renderer/**/*.tsx'
+    ],
   },
   darkMode: false, // or 'media' or 'class'
   theme: {

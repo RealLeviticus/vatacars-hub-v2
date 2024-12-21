@@ -1,7 +1,7 @@
 module.exports = {
   content: [
     './renderer/pages/**/*.{js,ts,jsx,tsx}',
-    './renderer/comp/**/*.{js,ts,jsx,tsx}',
+    './renderer/components/**/*.{js,ts,jsx,tsx}',
     './node_modules/flyonui/dist/js/*.js'
   ],
   theme: {
