@@ -23,7 +23,7 @@ export default () => {
     async function submitLogin(data) {
         setLoading(true);
 
-        const resp = await fetch("http://localhost:8001/api/provider/local", {
+        const resp = await fetch("https://vatacars.com/api/provider/local", {
             method: "POST",
             body: JSON.stringify({ email: data.email, password: data.password })
         }).then(resp => resp.json());
