@@ -6,6 +6,7 @@ import serve from 'electron-serve';
 import { createWindow, download } from './helpers';
 import Store from 'electron-store';
 import sudoPrompt from '@vscode/sudo-prompt';
+import { randomBytes } from 'crypto';
 
 let strapWindow, mainWindow;
 
@@ -16,9 +17,10 @@ if (isProd) {
   serve({ directory: 'app' });
   store = new Store({ name: 'vatacars' });
 } else {
-  store = new Store({ name: 'vatacars-dev' });
   app.setPath('userData', `${app.getPath('userData')} (development)`);
+  store = new Store({ name: 'vatacars' });
 }
+Store.initRenderer()
 
 function initUpdates() {
   if (process.platform === 'win32') app.setAppUserModelId(app.name);

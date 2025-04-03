@@ -8,7 +8,7 @@ export default function useUser({ redirectTo = "", redirectIfFound = false } = {
     const { data: user, mutate: mutateUser, isValidating } = useSWR<VatACARSUserData>("/api/session", fetcher);
 
     useEffect(() => {
-        if (!redirectTo || !user) return;
+        if (!redirectTo || isValidating) return; // Prevent redirect while session is still validating
 
         if (
             (redirectTo && !redirectIfFound && !user?.username) ||
@@ -16,7 +16,7 @@ export default function useUser({ redirectTo = "", redirectIfFound = false } = {
         ) {
             Router.push(redirectTo);
         }
-    }, [user, redirectIfFound, redirectTo]);
+    }, [user, redirectIfFound, redirectTo, isValidating]);
 
-    return { user, mutateUser, isLoading: isValidating && !user };
+    return { user, mutateUser, isLoading: !user && isValidating };
 }
