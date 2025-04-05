@@ -16,7 +16,6 @@ export const sessionOptions: SessionOptions = {
     cookieName: "session",
     cookieOptions: {
         secure: false,
-        path: path.join(app.getPath('userData'), 'sessions'),
     }
 }
 
