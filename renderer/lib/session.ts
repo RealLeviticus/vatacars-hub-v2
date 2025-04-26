@@ -1,21 +1,12 @@
-import { randomBytes } from 'crypto';
 import Store from 'electron-store';
+import path from 'path';
 
-const isProd = process.env.NODE_ENV === 'production';
-let store;
-
-if (isProd) store = new Store({ name: 'vatacars' });
-else store = new Store({ name: 'vatacars-dev' });
+let store = new Store({ name: 'vatacars' });
 
 export function getStoredPassword(): string {
-    let password = store.get('auth_cookie_pwd') as string;
+    //let password = store.get('cookiePwd') as string;
 
-    if (!password) {
-        password = randomBytes(32).toString('hex');
-        store.set('auth_cookie_pwd', password);
-    }
-
-    return password;
+    return "9ed540c309861c9cb9a716d9a9c9d58cefea37095e19e23b53f2e4a37ac1cbba";
 }
 
 import type { SessionOptions } from "iron-session";
@@ -24,7 +15,7 @@ export const sessionOptions: SessionOptions = {
     password: getStoredPassword(),
     cookieName: "session",
     cookieOptions: {
-        secure: true
+        secure: false,
     }
 }
 

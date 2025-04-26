@@ -1,16 +1,26 @@
+import { getIronSession } from "iron-session";
+import { sessionOptions, SessionData } from "../../lib/session";
 import { NextApiRequest, NextApiResponse } from "next";
-import { getIronSession, IronSession } from "iron-session";
-import { SessionData, sessionOptions } from "../../lib/session";
-import { sendApiResponse } from "../../lib/apiResponse";
+import { VatACARSUserData } from "../../lib/types";
 
-export default async (req: NextApiRequest, res: NextApiResponse) => {
+export default async function loginRoute(req: NextApiRequest, res: NextApiResponse) {
+    if (req.method !== "POST") {
+        // Only allow POST method
+        return res.status(405).json({ message: "Method Not Allowed" });
+    }
+
     const session = await getIronSession<SessionData>(req, res, sessionOptions);
-    if (req.method !== "POST") return sendApiResponse(res, "error", "Method not allowed.", {}, 405);
-    if (!req.body) return sendApiResponse(res, "error", "No data provided.", {}, 400);
-    const { id, username, firstName, lastName } = req.body;
-    if (!id || !username || !firstName || !lastName) return sendApiResponse(res, "error", "Invalid data provided.", {}, 400);
 
+    const { id, username, firstName, lastName } = req.body as Partial<VatACARSUserData>;
+
+    if (!id || !username || !firstName || !lastName) {
+        // Validate that all required fields exist
+        return res.status(400).json({ message: "Missing or invalid user data." });
+    }
+
+    // Save validated user info to session
     session.user = { id, username, firstName, lastName };
     await session.save();
-    return sendApiResponse(res, "success", "Logged in successfully.", { user: session.user });
+
+    res.status(200).json({ message: "Logged in successfully." });
 }
