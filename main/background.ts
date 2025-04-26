@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { app, ipcMain, dialog, ipcRenderer } from 'electron';
+import { app, ipcMain, dialog } from 'electron';
 import { autoUpdater } from 'electron-updater';
 import serve from 'electron-serve';
 import { createWindow, download } from './helpers';
@@ -20,7 +20,20 @@ if (isProd) {
   app.setPath('userData', `${app.getPath('userData')} (development)`);
   store = new Store({ name: 'vatacars' });
 }
-Store.initRenderer()
+
+Store.initRenderer();
+
+async function safeLoadURL(pathName: string) {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    const isProd = process.env.NODE_ENV === 'production';
+    if (isProd) {
+      await mainWindow.loadURL(`app://./${pathName}`);
+    } else {
+      const port = process.argv[2];
+      await mainWindow.loadURL(`http://localhost:${port}/${pathName}`);
+    }
+  }
+}
 
 function initUpdates() {
   if (process.platform === 'win32') app.setAppUserModelId(app.name);
@@ -69,7 +82,7 @@ app.on('window-all-closed', () => {
   app.quit();
 });
 
-ipcMain.on('openApp', async (event, arg) => {
+ipcMain.on('openApp', async () => {
   strapWindow.close();
   mainWindow = createWindow('main', {
     width: 1024,
@@ -83,33 +96,17 @@ ipcMain.on('openApp', async (event, arg) => {
     },
   });
 
-  const UpsertKeyValue = (
-    header: Record<string, string> | Record<string, string[]>,
-    keyToChange: string,
-    value: string | string[],
-  ) => {
-    for (const key of Object.keys(header)) {
-      if (key.toLowerCase() === keyToChange.toLowerCase()) {
-        header[key] = value;
-        return;
-      }
-    }
-    header[keyToChange] = value;
-  };
-
   mainWindow.webContents.session.webRequest.onBeforeSendHeaders((details, callback) => {
     const { requestHeaders } = details;
-    UpsertKeyValue(requestHeaders, 'Access-Control-Allow-Origin', '*');
+    requestHeaders['Access-Control-Allow-Origin'] = '*';
     callback({ requestHeaders });
   });
 
   mainWindow.webContents.session.webRequest.onHeadersReceived((details, callback) => {
     const { responseHeaders } = details;
-    UpsertKeyValue(responseHeaders, 'Access-Control-Allow-Origin', ['*']);
-    UpsertKeyValue(responseHeaders, 'Access-Control-Allow-Headers', ['*']);
-    callback({
-      responseHeaders,
-    });
+    responseHeaders['Access-Control-Allow-Origin'] = ['*'];
+    responseHeaders['Access-Control-Allow-Headers'] = ['*'];
+    callback({ responseHeaders });
   });
 
   if (isProd) {
@@ -118,8 +115,6 @@ ipcMain.on('openApp', async (event, arg) => {
   } else {
     const port = process.argv[2];
     await mainWindow.loadURL(`http://localhost:${port}/welcome`);
-    //setTimeout(() => mainWindow.webContents.send('updateAvailable', {}), 2000);
-    //mainWindow.webContents.openDevTools();
   }
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
@@ -128,21 +123,30 @@ ipcMain.on('openApp', async (event, arg) => {
   });
 });
 
-ipcMain.on('windowControl', async (event, arg) => {
-  if (arg == 'minimize') return mainWindow.minimize();
-  if (arg == 'maximize') return mainWindow.isMaximized() ? mainWindow.unmaximize() : mainWindow.maximize();
-  if (arg == 'close') return mainWindow.close();
+ipcMain.on('windowControl', async (_event, arg) => {
+  if (!mainWindow) return;
+  if (arg === 'minimize') return mainWindow.minimize();
+  if (arg === 'maximize') return mainWindow.isMaximized() ? mainWindow.unmaximize() : mainWindow.maximize();
+  if (arg === 'close') return mainWindow.close();
 
-  if (arg == 'unrestrictSize') {
+  if (arg === 'unrestrictSize') {
     mainWindow.setResizable(true);
     mainWindow.setMinimumSize(1024, 640);
   }
 });
 
+ipcMain.on('navigate-home', async () => {
+  await safeLoadURL('home');
+});
+
+ipcMain.on('navigate-to', async (_event, pathToGo: string) => {
+  await safeLoadURL(pathToGo);
+});
+
 ipcMain.on('storeInteraction', async (event, arg) => {
-  if (arg.action == 'set') {
+  if (arg.action === 'set') {
     store.set(arg.setting, arg.property);
-  } else if (arg.action == 'get') {
+  } else if (arg.action === 'get') {
     event.reply('storeInteractionReply', {
       setting: arg.setting,
       property: store.get(arg.setting) || false,
@@ -150,56 +154,55 @@ ipcMain.on('storeInteraction', async (event, arg) => {
   }
 });
 
-ipcMain.on('installUpdate', async (_event, _arg) => {
+ipcMain.on('installUpdate', async () => {
   autoUpdater.downloadUpdate();
 });
 
-ipcMain.on('restartApp', (_event, _arg) => {
+ipcMain.on('restartApp', () => {
   autoUpdater.quitAndInstall();
 });
 
-function checkProcess(query, cb) {
+function checkProcess(query: string, cb: (running: boolean) => void) {
   const exec = require('child_process').exec;
-
-  let platform = process.platform;
   let cmd = '';
-  switch (platform) {
+
+  switch (process.platform) {
     case 'win32':
-      cmd = `tasklist`;
+      cmd = 'tasklist';
       break;
     case 'darwin':
       cmd = `ps -ax | grep ${query}`;
       break;
     case 'linux':
-      cmd = `ps -A`;
-      break;
-    default:
+      cmd = 'ps -A';
       break;
   }
-  exec(cmd, (err, stdout, stderr) => {
-    cb(stdout.toLowerCase().indexOf(query.toLowerCase()) > -1);
+
+  exec(cmd, (err, stdout) => {
+    cb(stdout.toLowerCase().includes(query.toLowerCase()));
   });
 }
 
 ipcMain.on('downloadPlugin', async (event, arg) => {
-  const { downloadUrl } = arg;
+  const { downloadUrl, version } = arg;
 
   checkProcess('vatSys.exe', async (running) => {
     if (running) return event.reply('downloadPluginReply', { status: 'running' });
+
     let vatSysLoc = store.get('vatSysLoc');
     if (!vatSysLoc) {
       if (fs.existsSync('C:\\Program Files (x86)\\vatSys\\bin')) {
         vatSysLoc = 'C:\\Program Files (x86)\\vatSys\\bin';
-      } else
-        vatSysLoc = dialog
-          .showOpenDialogSync({
-            title: 'Select your vatSys.exe installation.',
-            properties: ['openFile'],
-            filters: [{ name: 'vatSys.exe', extensions: ['exe'] }],
-          })[0]
-          .split('\\')
-          .slice(0, -1)
-          .join('\\');
+      } else {
+        const result = dialog.showOpenDialogSync({
+          title: 'Select your vatSys.exe installation.',
+          properties: ['openFile'],
+          filters: [{ name: 'vatSys.exe', extensions: ['exe'] }],
+        });
+
+        if (!result) return;
+        vatSysLoc = result[0].split('\\').slice(0, -1).join('\\');
+      }
       store.set('vatSysLoc', vatSysLoc);
     }
 
@@ -210,66 +213,65 @@ ipcMain.on('downloadPlugin', async (event, arg) => {
 
     const command = `copy /Y "${pluginLoc}" "${vatSysLoc}\\Plugins\\vatACARS.dll"`;
     await event.reply('downloadPluginReply', { status: 'installing' });
+
     await runProcessElevated(command).catch(() => {
       return event.reply('downloadPluginReply', { status: 'failed' });
     });
 
-    store.set('pluginInstalledVersion', arg.version);
-    event.reply('checkDownloadedPluginReply', { installed: true, version: arg.version });
-    return event.reply('downloadPluginReply', { status: 'done' });
+    store.set('pluginInstalledVersion', version);
+    event.reply('checkDownloadedPluginReply', { installed: true, version });
+    event.reply('downloadPluginReply', { status: 'done' });
   });
 });
 
-ipcMain.on('uninstallPlugin', async (event, arg) => {
+ipcMain.on('uninstallPlugin', async (event) => {
   checkProcess('vatSys.exe', async (running) => {
     if (running) return event.reply('uninstallPluginReply', { status: 'running' });
+
     let vatSysLoc = store.get('vatSysLoc');
     if (!vatSysLoc) {
       if (fs.existsSync('C:\\Program Files (x86)\\vatSys\\bin')) {
         vatSysLoc = 'C:\\Program Files (x86)\\vatSys\\bin';
-      } else
-        vatSysLoc = dialog
-          .showOpenDialogSync({
-            title: 'Select your vatSys.exe installation.',
-            properties: ['openFile'],
-            filters: [{ name: 'vatSys.exe', extensions: ['exe'] }],
-          })[0]
-          .split('\\')
-          .slice(0, -1)
-          .join('\\');
+      } else {
+        const result = dialog.showOpenDialogSync({
+          title: 'Select your vatSys.exe installation.',
+          properties: ['openFile'],
+          filters: [{ name: 'vatSys.exe', extensions: ['exe'] }],
+        });
+
+        if (!result) return;
+        vatSysLoc = result[0].split('\\').slice(0, -1).join('\\');
+      }
       store.set('vatSysLoc', vatSysLoc);
     }
 
     const pluginLoc = path.join(vatSysLoc, 'Plugins\\vatACARS.dll');
     const command = `del /Q "${pluginLoc}"`;
+
     await runProcessElevated(command).catch(() => {
       return event.reply('uninstallPluginReply', { status: 'failed' });
     });
 
-    return event.reply('uninstallPluginReply', { status: 'done' });
+    event.reply('uninstallPluginReply', { status: 'done' });
   });
 });
 
-ipcMain.on('checkDownloadedPlugin', async (event, arg) => {
+ipcMain.on('checkDownloadedPlugin', async (event) => {
   let vatSysLoc = store.get('vatSysLoc');
   if (!vatSysLoc) return event.reply('checkDownloadedPluginReply', { installed: false });
 
   const pluginLoc = path.join(vatSysLoc, 'Plugins\\vatACARS.dll');
-  const exists = require('fs').existsSync(pluginLoc);
-  let cVer = store.get('pluginInstalledVersion');
-  if (!cVer) store.set('pluginInstalledVersion', '1.0.1');
-  event.reply('checkDownloadedPluginReply', { installed: exists, version: exists ? cVer || '1.0.1' : null });
+  const exists = fs.existsSync(pluginLoc);
+  const cVer = store.get('pluginInstalledVersion') || '1.0.1';
+
+  event.reply('checkDownloadedPluginReply', { installed: exists, version: exists ? cVer : null });
 });
 
 function runProcessElevated(command: string) {
   return new Promise<string>((resolve, reject) => {
     sudoPrompt.exec(command, { name: 'Install vatACARS' }, (error, stdout, stderr) => {
-      if (stdout) {
-        console.log('runProcessElevated', stdout);
-      }
-      if (stderr) {
-        console.log('runProcessElevated', stderr);
-      }
+      if (stdout) console.log('runProcessElevated', stdout);
+      if (stderr) console.log('runProcessElevated', stderr);
       if (error) {
         reject(error);
       } else {
