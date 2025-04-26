@@ -1,14 +1,14 @@
-// pages/api/session.ts
-import type { NextApiRequest, NextApiResponse } from 'next';
+import { getIronSession } from "iron-session";
+import { sessionOptions, SessionData } from "../../lib/session";
+import { NextApiRequest, NextApiResponse } from "next";
+import type { VatACARSUserData } from "../../lib/types";
 
-export default function handler(req: NextApiRequest, res: NextApiResponse) {
-    // Mocked user session
-    const mockUser = {
-        id: "123",
-        username: "testuser",
-        firstName: "Test",
-        lastName: "User",
-    };
+export default async function userRoute(req: NextApiRequest, res: NextApiResponse<VatACARSUserData | {}>) {
+    const session = await getIronSession<SessionData>(req, res, sessionOptions);
 
-    res.status(200).json(mockUser);
+    if (session.user) {
+        res.json(session.user);
+    } else {
+        res.json({});
+    }
 }
