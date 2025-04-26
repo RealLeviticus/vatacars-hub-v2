@@ -1,16 +1,18 @@
-import { NextApiRequest, NextApiResponse } from "next";
-import { getIronSession, IronSession } from "iron-session";
-import { SessionData, sessionOptions } from "../../lib/session";
-import { sendApiResponse } from "../../lib/apiResponse";
+// pages/api/login.ts
+import type { NextApiRequest, NextApiResponse } from 'next';
 
-export default async (req: NextApiRequest, res: NextApiResponse) => {
-    const session = await getIronSession<SessionData>(req, res, sessionOptions);
-    if (req.method !== "POST") return sendApiResponse(res, "error", "Method not allowed.", {}, 405);
-    if (!req.body) return sendApiResponse(res, "error", "No data provided.", {}, 400);
+export default function handler(req: NextApiRequest, res: NextApiResponse) {
+    if (req.method !== 'POST') {
+        return res.status(405).json({ message: 'Method Not Allowed' });
+    }
+
     const { id, username, firstName, lastName } = req.body;
-    if (!id || !username || !firstName || !lastName) return sendApiResponse(res, "error", "Invalid data provided.", {}, 400);
 
-    session.user = { id, username, firstName, lastName };
-    await session.save();
-    return sendApiResponse(res, "success", "Logged in successfully.", { user: session.user });
+    if (!id || !username) {
+        // Simulate failed login
+        return res.status(400).json({ status: 'error', message: 'Missing credentials' });
+    }
+
+    // Simulate successful login
+    return res.status(200).json({ status: 'success', message: 'Login successful', data: { id, username, firstName, lastName } });
 }

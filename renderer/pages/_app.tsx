@@ -13,7 +13,7 @@ function MyApp({ Component, pageProps }: AppProps) {
 
   return (
     <main className="prevent-select h-screen overflow-hidden bg-zinc-800 text-zinc-200">
-      {router.asPath != '/' && <WindowHeader />}
+      {router.asPath !== '/' && <WindowHeader />}
       <Component {...pageProps} />
       <FlyonuiScript />
     </main>
