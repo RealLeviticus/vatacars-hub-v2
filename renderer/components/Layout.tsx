@@ -20,7 +20,7 @@ const accountClientsList = [
 export default function Layout({ children }: { children: React.ReactNode }) {
     const router = useRouter();
     const [username, setUsername] = useState('User');
-    const [sidebarOpen, setSidebarOpen] = useState(true);
+    const [sidebarOpen, setSidebarOpen] = useState(false);
     const [accountView, setAccountView] = useState(false);
     const [showConfirm, setShowConfirm] = useState(false);
     const [fadeOutContent, setFadeOutContent] = useState(false);
@@ -29,18 +29,21 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     const [waitingToFadeSidebar, setWaitingToFadeSidebar] = useState(false);
 
     useEffect(() => {
-        if (typeof window !== 'undefined') {
+        const fetchUser = async () => {
             try {
-                const storedUser = localStorage.getItem('user');
-                if (storedUser) {
-                    const parsed = JSON.parse(storedUser);
-                    setUsername(parsed.username || 'User');
+                const res = await fetch("/api/session");
+                const user = await res.json();
+                if (user && user.username) {
+                    setUsername(user.username);
                 }
             } catch (err) {
-                console.error('Failed to parse user:', err);
+                console.error("Failed to load session user", err);
             }
-        }
+        };
+
+        fetchUser();
     }, []);
+
 
     const confirmLogout = async () => {
         try {

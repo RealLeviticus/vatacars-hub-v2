@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { yupResolver } from "@hookform/resolvers/yup";
 import * as yup from "yup";
@@ -6,10 +6,10 @@ import { InferType } from "yup";
 import { useRouter } from "next/router";
 import Link from "next/link";
 import { motion } from "framer-motion";
-import { toast, Toaster } from "react-hot-toast"; // 🔥 Add toast system
+import { toast, Toaster } from "react-hot-toast";
 
 const loginSchema = yup.object({
-    email: yup.string().required("Email is required"),
+    emailOrUsername: yup.string().required("Email or username is required"),
     password: yup.string().required("Password is required"),
 });
 
@@ -26,13 +26,21 @@ export default function LoginPage() {
     async function submitLogin(data: LoginFormInputs) {
         try {
             setLoading(true);
-            const resp = await fetch("/api/auth", {
+
+            const res = await fetch("/api/auth", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ emailOrUsername: data.email, password: data.password }),
+                body: JSON.stringify(data),
             });
 
-            const respJson = await resp.json();
+            let respJson: any = null;
+            try {
+                respJson = await res.json();
+            } catch (err) {
+                const raw = await res.text();
+                console.error("Raw error:", raw);
+                throw new Error("Invalid server response");
+            }
 
             if (respJson.status !== "success") {
                 toast.error(respJson.message || "Login failed.");
@@ -40,26 +48,30 @@ export default function LoginPage() {
                 return;
             }
 
-            // After successful login, store the session in localStorage
-            if (typeof window !== "undefined") {
-                localStorage.setItem("user", JSON.stringify(respJson.data));
-            }
-
             toast.success("Login successful!");
             setTimeout(() => router.replace("/home"), 500);
-        } catch (error) {
-            console.error("Login error:", error);
-            toast.error("An unexpected error occurred.");
+        } catch (err) {
+            console.error("Login error:", err);
+            toast.error("Unexpected error occurred.");
             setLoading(false);
         }
     }
 
+    // Optional: if user is already logged in, redirect to home
+    useEffect(() => {
+        fetch("/api/session")
+            .then((res) => res.json())
+            .then((user) => {
+                if (user && user.email) {
+                    router.replace("/home");
+                }
+            });
+    }, []);
+
     return (
         <div className="flex items-center justify-center w-screen h-screen px-4">
-            {/* Toast container */}
             <Toaster position="top-center" reverseOrder={false} />
 
-            {/* Animate the entire login block */}
             <motion.div
                 initial={{ opacity: 0, y: 30 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -74,17 +86,16 @@ export default function LoginPage() {
                     <div className="relative">
                         <input
                             disabled={loading}
-                            {...register("email")}
+                            {...register("emailOrUsername")}
                             type="text"
-                            autoComplete="email"
-                            required
+                            autoComplete="username"
                             className="input input-floating peer w-full bg-zinc-800 focus:border focus:border-white"
-                            placeholder="Email Address or Username"
+                            placeholder="Email or Username"
                         />
-                        <label htmlFor="email" className="input-floating-label peer-focus:text-zinc-300">
+                        <label className="input-floating-label peer-focus:text-zinc-300">
                             Email / Username
                         </label>
-                        {errors.email && <p className="text-red-500 text-xs mt-1">{errors.email.message}</p>}
+                        {errors.emailOrUsername && <p className="text-red-500 text-xs mt-1">{errors.emailOrUsername.message}</p>}
                     </div>
 
                     <div className="relative">
@@ -93,22 +104,13 @@ export default function LoginPage() {
                             {...register("password")}
                             type="password"
                             autoComplete="current-password"
-                            required
                             className="input input-floating peer w-full bg-zinc-800 focus:border focus:border-white"
                             placeholder="Password"
                         />
-                        <label htmlFor="password" className="input-floating-label peer-focus:text-zinc-300">
+                        <label className="input-floating-label peer-focus:text-zinc-300">
                             Password
                         </label>
                         {errors.password && <p className="text-red-500 text-xs mt-1">{errors.password.message}</p>}
-
-                        <div className="w-full flex justify-end mt-2">
-                            <Link href="https://vatacars.com/auth/forgot" target="_blank">
-                                <span className="block cursor-pointer text-sm text-blue-400 link link-animated">
-                                    Forgot password?
-                                </span>
-                            </Link>
-                        </div>
                     </div>
 
                     <div className="form-control pt-3">
@@ -122,7 +124,7 @@ export default function LoginPage() {
                     </div>
 
                     <div className="text-center text-sm text-slate-400 mt-4">
-                        Don't have an account yet?
+                        Don’t have an account?
                         <Link href="https://vatacars.com/auth/signup" target="_blank">
                             <span className="ml-2 font-medium text-blue-400 link link-animated">Sign up</span>
                         </Link>

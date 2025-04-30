@@ -1,21 +1,28 @@
 // lib/session.ts
 import { SessionOptions } from "iron-session";
 
-// Define the type for session data
+// This defines what `req.session.user` will look like
 export interface SessionData {
     user?: {
         id: string;
         email: string;
-        firstName: string;
-        lastName: string;
+        username: string;
+        firstName?: string;
+        lastName?: string;
+        name?: string;
     };
 }
 
-// Configure the session options (must have the password)
+// Session config
 export const sessionOptions: SessionOptions = {
-    password: process.env.SESSION_SECRET as string, // Use the secret from .env file
-    cookieName: "vatacars_session", // Name of the session cookie
+    password: process.env.SESSION_SECRET as string,
+    cookieName: "vatacars_session",
     cookieOptions: {
-        secure: process.env.NODE_ENV === "production", // Secure cookies only in production
+        secure: process.env.NODE_ENV === "production",
     },
 };
+
+// 🔥 Required for TypeScript to understand `session.user`
+declare module "iron-session" {
+    interface IronSessionData extends SessionData { }
+}

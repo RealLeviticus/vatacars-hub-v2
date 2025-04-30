@@ -3,4 +3,5 @@ export interface VatACARSUserData {
     username: string;
     firstName: string;
     lastName: string;
+    name?: string;
 }
