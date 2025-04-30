@@ -1,14 +1,17 @@
+// pages/api/session.ts
 import { getIronSession } from "iron-session";
-import { sessionOptions, SessionData } from "../../lib/session";
+import { sessionOptions, SessionData } from "../../lib/session"; // Import session options and types
 import { NextApiRequest, NextApiResponse } from "next";
-import type { VatACARSUserData } from "../../lib/types";
 
-export default async function userRoute(req: NextApiRequest, res: NextApiResponse<VatACARSUserData | {}>) {
+export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+    // Get the session using the session options
     const session = await getIronSession<SessionData>(req, res, sessionOptions);
 
     if (session.user) {
-        res.json(session.user);
-    } else {
-        res.json({});
+        // If the user is logged in, return their session data
+        return res.status(200).json(session.user);
     }
+
+    // If no user is logged in, return an empty object
+    return res.status(200).json({});
 }

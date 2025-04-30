@@ -1,38 +1,21 @@
-import { randomBytes } from 'crypto';
-import Store from 'electron-store';
+// lib/session.ts
+import { SessionOptions } from "iron-session";
 
-const isProd = process.env.NODE_ENV === 'production';
-let store;
-
-if (isProd) store = new Store({ name: 'vatacars' });
-else store = new Store({ name: 'vatacars-dev' });
-
-export function getStoredPassword(): string {
-    let password = store.get('auth_cookie_pwd') as string;
-
-    if (!password) {
-        password = randomBytes(32).toString('hex');
-        store.set('auth_cookie_pwd', password);
-    }
-
-    return password;
-}
-
-import type { SessionOptions } from "iron-session";
-
-export const sessionOptions: SessionOptions = {
-    password: getStoredPassword(),
-    cookieName: "session",
-    cookieOptions: {
-        secure: true
-    }
-}
-
+// Define the type for session data
 export interface SessionData {
-    user: {
+    user?: {
         id: string;
-        username: string;
+        email: string;
         firstName: string;
         lastName: string;
-    }
+    };
 }
+
+// Configure the session options (must have the password)
+export const sessionOptions: SessionOptions = {
+    password: process.env.SESSION_SECRET as string, // Use the secret from .env file
+    cookieName: "vatacars_session", // Name of the session cookie
+    cookieOptions: {
+        secure: process.env.NODE_ENV === "production", // Secure cookies only in production
+    },
+};
