@@ -19,26 +19,36 @@ const accountClientsList = [
 
 export default function Layout({ children }: { children: React.ReactNode }) {
     const router = useRouter();
+    const [username, setUsername] = useState('User');
     const [sidebarOpen, setSidebarOpen] = useState(true);
     const [accountView, setAccountView] = useState(false);
     const [showConfirm, setShowConfirm] = useState(false);
     const [fadeOutContent, setFadeOutContent] = useState(false);
     const [fadeOutSidebar, setFadeOutSidebar] = useState(false);
     const [navigatingPath, setNavigatingPath] = useState<string | null>(null);
-    const [waitingToFadeSidebar, setWaitingToFadeSidebar] = useState(false); // NEW
+    const [waitingToFadeSidebar, setWaitingToFadeSidebar] = useState(false);
+
+    useEffect(() => {
+        if (typeof window !== 'undefined') {
+            try {
+                const storedUser = localStorage.getItem('user');
+                if (storedUser) {
+                    const parsed = JSON.parse(storedUser);
+                    setUsername(parsed.username || 'User');
+                }
+            } catch (err) {
+                console.error('Failed to parse user:', err);
+            }
+        }
+    }, []);
 
     const confirmLogout = async () => {
         try {
-            // Call the logout API to clear the session server-side
             const response = await fetch('/api/logout', { method: 'POST' });
-
             if (response.ok) {
-                // Clear the session data in localStorage on the frontend
-                if (typeof window !== "undefined") {
-                    localStorage.removeItem('user'); // Clear localStorage on successful logout
+                if (typeof window !== 'undefined') {
+                    localStorage.removeItem('user');
                 }
-
-                // Redirect the user to the login page after successful logout
                 router.push('/login');
             } else {
                 console.error('Logout failed');
@@ -51,29 +61,28 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     const handleNavigation = (path: string) => {
         if (path === router.pathname) return;
         setNavigatingPath(path);
-        setFadeOutContent(true); // Fade out content
+        setFadeOutContent(true);
         setTimeout(() => {
             router.push(path);
         }, 300);
     };
 
-    // after user lands on a NEW PAGE
     useEffect(() => {
-        if (!navigatingPath) return; // Not navigating
+        if (!navigatingPath) return;
 
-        setFadeOutContent(false); // fade content back in
-        setWaitingToFadeSidebar(true); // tell it we are waiting
+        setFadeOutContent(false);
+        setWaitingToFadeSidebar(true);
 
         const fadeTimer = setTimeout(() => {
-            setFadeOutSidebar(true); // actually fade sidebar now
-        }, 500); // wait 0.5s after new page loads
+            setFadeOutSidebar(true);
+        }, 500);
 
         const collapseTimer = setTimeout(() => {
-            setSidebarOpen(false); // collapse sidebar after fade
+            setSidebarOpen(false);
             setFadeOutSidebar(false);
             setWaitingToFadeSidebar(false);
             setNavigatingPath(null);
-        }, 1000); // 0.5s after sidebar fade starts
+        }, 1000);
 
         return () => {
             clearTimeout(fadeTimer);
@@ -83,7 +92,6 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
     return (
         <div className="relative h-screen w-screen flex overflow-hidden">
-            {/* Confirm Logout Modal */}
             <AnimatePresence>
                 {showConfirm && (
                     <motion.div
@@ -121,7 +129,6 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                 )}
             </AnimatePresence>
 
-            {/* Sidebar Toggle Button */}
             <motion.button
                 onClick={() => setSidebarOpen(!sidebarOpen)}
                 initial={{ x: 0 }}
@@ -133,7 +140,6 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                 {sidebarOpen ? <HiX size={24} /> : <HiMenu size={24} />}
             </motion.button>
 
-            {/* Sidebar */}
             <motion.aside
                 initial={{ x: -300 }}
                 animate={{
@@ -146,7 +152,6 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                 }}
                 className="fixed top-0 left-0 w-64 h-screen bg-gradient-to-br from-slate-900 to-slate-800 border-r-2 border-slate-600 p-4 flex flex-col z-20"
             >
-                {/* Sidebar content */}
                 <div className="flex flex-col space-y-2">
                     <h2 className="text-white text-xl font-bold mb-2 text-center">
                         {accountView ? 'User Area' : 'Applications'}
@@ -176,10 +181,8 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                     </AnimatePresence>
                 </div>
 
-                {/* Spacer */}
                 <div className="flex-grow"></div>
 
-                {/* Bottom buttons */}
                 <div className="flex flex-col space-y-2">
                     {accountView && (
                         <button
@@ -203,13 +206,12 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                             className="p-3 rounded-md bg-slate-700 text-white hover:bg-slate-600 flex items-center justify-center space-x-2"
                         >
                             <FaUserCircle size={24} />
-                            <span>User Area</span>
+                            <span>Hi, {username}</span>
                         </button>
                     )}
                 </div>
             </motion.aside>
 
-            {/* Main Content */}
             <motion.main
                 className="relative overflow-hidden"
                 animate={{
