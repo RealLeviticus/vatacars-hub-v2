@@ -8,12 +8,16 @@
   "scripts": {
     "dev": "dotenv nextron",
     "build": "dotenv nextron build",
+    "export": "next export",
     "postinstall": "dotenv electron-builder install-app-deps",
-    "release": "dotenv electron-builder"
+    "release": "dotenv electron-builder",
+    "start": "cross-env NODE_ENV=production electron ."
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.1",
     "@vscode/sudo-prompt": "^9.3.1",
+    "adm-zip": "^0.5.16",
+    "axios": "^1.9.0",
     "bcryptjs": "^2.4.3",
     "dotenv": "16.5.0",
     "electron-serve": "^1.3.0",
@@ -27,6 +31,7 @@
     "react-hot-toast": "^2.5.2",
     "semver-compare": "^1.0.0",
     "swr": "^2.2.5",
+    "unzipper": "^0.12.3",
     "yup": "^1.6.1"
   },
   "devDependencies": {

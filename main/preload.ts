@@ -18,13 +18,12 @@ const handler = {
 // Preload function for pages
 const preloadPages = async () => {
   const pagesToPreload = [
-    "/vatsys",
-    "/euroscope",
-    "/pilot",
-    "/account",
-    "/settings",
-    "/test", // Your test page
     "/",     // Landing page
+    "home",     // Landing page
+    "euroscope",     // Landing page
+    "vatsys",     // Landing page
+    "pilot",     // Landing page
+    "test",     // Landing page
   ];
 
   for (const page of pagesToPreload) {
@@ -45,5 +44,6 @@ contextBridge.exposeInMainWorld('ipc', handler);
   console.log("[Preload] Starting automatic page preloading...");
   await preloadPages();
 })();
+
 
 export type IpcHandler = typeof handler;
