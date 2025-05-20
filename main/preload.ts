@@ -22,7 +22,7 @@ const preloadPages = async () => {
     "/euroscope",
     "/vatsys",
     "/pilot",
-    "/test",
+    "/OzStrips",
   ];
 
   for (const page of pagesToPreload) {
