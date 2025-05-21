@@ -16,11 +16,30 @@ async function checkForAppUpdate() {
   try {
     const response = await axios.get(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`);
     const latest = response.data;
-    const latestVersion = latest.tag_name.startsWith('v') ? latest.tag_name.slice(1) : latest.tag_name;
+    let latestVersion = latest.tag_name;
+
+    if (!semver.valid(latestVersion)) {
+      const fromTitle = extractVersionFromString(latest.name || latest.title || "");
+      if (fromTitle && semver.valid(fromTitle)) {
+        latestVersion = fromTitle;
+      } else {
+        const fromBody = extractVersionFromString(latest.body || "");
+        if (fromBody && semver.valid(fromBody)) {
+          latestVersion = fromBody;
+        }
+      }
+    } else if (latestVersion.startsWith('v')) {
+      latestVersion = latestVersion.slice(1);
+    }
+
     const currentVersion = app.getVersion();
 
+    const updateAvailable = semver.gt(latestVersion, currentVersion, { includePrerelease: true });
+
+    console.log(`[UpdateCheck] Current: ${currentVersion}, Latest: ${latestVersion}, Update Available: ${updateAvailable}`);
+
     return {
-      updateAvailable: require('semver').gt(latestVersion, currentVersion),
+      updateAvailable,
       latestVersion,
       currentVersion,
       releaseNotes: latest.body,
@@ -298,6 +317,16 @@ function extractVersionFromText(text: string): string | null {
   // Looks for patterns like 1.2.3 or v1.2.3
   const match = text.match(/v?(\d+\.\d+\.\d+([a-zA-Z0-9\-\.]*)?)/);
   return match ? match[1] : null;
+}
+
+function extractVersionFromString(text: string): string | null {
+  const match = text.match(/(?:[Vv]ersion|[Rr]elease|[Vv])?\s*\.?\s*(\d+\.\d+(?:\.\d+)?(?:-[\w\.]+)?)/);
+  if (match && match[1]) {
+    const parts = match[1].split('.');
+    if (parts.length === 2) return `${parts[0]}.${parts[1]}.0`;
+    return match[1];
+  }
+  return null;
 }
 
 // Helper: Scan plugin directory for version (now only uses config or version.json)
