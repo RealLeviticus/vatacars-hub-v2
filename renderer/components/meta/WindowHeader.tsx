@@ -2,6 +2,11 @@ import Image from "next/legacy/image";
 
 import { VscChromeMinimize, VscChromeMaximize, VscChromeClose } from 'react-icons/vsc';
 
+const handleClose = () => {
+  // @ts-ignore
+  window.ipc.send('saveAndClose');
+};
+
 export default () => {
   return (
     <div className="h-7 titlebar flex justify-between items-center bg-zinc-900 text-zinc-200 font-semibold border-b border-zinc-600">
@@ -30,6 +35,9 @@ export default () => {
         >
           <VscChromeClose />
         </a>
+        <button onClick={handleClose} className="px-4 flex items-center titlebar-button hover:bg-red-600 transition-all">
+          <VscChromeClose />
+        </button>
       </div>
     </div>
   );

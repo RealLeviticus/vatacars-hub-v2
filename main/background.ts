@@ -626,3 +626,10 @@ ipcMain.handle('downloadAndInstallAppUpdate', async (_event, downloadUrl) => {
     writer.on('error', reject);
   });
 });
+
+ipcMain.on('saveAndClose', () => {
+  if (mainWindow) {
+    store.set('mainWindowBounds', mainWindow.getBounds());
+    mainWindow.close();
+  }
+});

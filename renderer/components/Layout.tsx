@@ -12,9 +12,11 @@ const appClientsList = [
 ];
 
 const recommendedPluginsList = [
-    { name: 'OzStrips', path: '/OzStrips' },
+    { name: 'OzStrips', path: '/ozstrips' },
     { name: 'Vatpac Plugin (vatSys Server Lite)', path: '/vatpacplugin' },
-    // Add more recommended plugins here as needed
+    { name: 'Discord Plugin', path: '/discordplugin' },
+    { name: 'Events Plugin', path: '/eventsplugin' },
+    { name: 'Airports Plugin', path: '/airportsplugin' },
 ];
 
 export default function Layout({ children }: { children: React.ReactNode }) {
