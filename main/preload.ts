@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer, IpcRendererEvent } from 'electron';
+import { app, ipcMain } from 'electron';
 
 // Your existing ipc handler with added invoke method
 const handler = {
@@ -48,5 +49,6 @@ contextBridge.exposeInMainWorld('ipc', handler);
   await preloadPages();
 })();
 
+ipcMain.handle('getAppVersion', () => app.getVersion());
 
 export type IpcHandler = typeof handler;
