@@ -79,7 +79,7 @@ async function checkForAppUpdate() {
       updateAvailable: semver.gt(latestVersion, currentVersion),
       latestVersion,
       currentVersion,
-      releaseNotes: latest.body,
+      releaseNotes: latest.body,  // <-- This is the GitHub release description
       downloadUrl: latest.assets?.[0]?.browser_download_url || null,
     };
   } catch (err) {
@@ -574,7 +574,9 @@ ipcMain.on('readInstalledVersion', (event, arg) => {
 });
 
 ipcMain.handle('checkAppUpdate', async () => {
-  return await checkForAppUpdate();
+  const updateInfo = await checkForAppUpdate();
+  // updateInfo.releaseNotes contains the GitHub release description (change log)
+  return updateInfo;
 });
 
 ipcMain.handle('downloadAndInstallAppUpdate', async (_event, downloadUrl) => {
