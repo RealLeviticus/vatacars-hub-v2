@@ -13,9 +13,14 @@ let strapWindow, mainWindow;
 let splashStartTime: number;
 
 const isProd = process.env.NODE_ENV === 'production';
-const store = new Store({ name: isProd ? 'vatacars' : 'vatacars-dev' });
 
-if (!isProd) {
+// Correct store naming and userData path depending on environment
+let store: Store;
+if (isProd) {
+  serve({ directory: 'app' });
+  store = new Store({ name: 'vatacars' });
+} else {
+  store = new Store({ name: 'vatacars-dev' });
   app.setPath('userData', `${app.getPath('userData')} (development)`);
 }
 
@@ -65,6 +70,7 @@ app.on('window-all-closed', () => {
 });
 
 ipcMain.on('openApp', async () => {
+  // Retain splash for at least 5 seconds, then open main window with original size logic
   const splashMinDuration = 5000;
   const elapsed = Date.now() - splashStartTime;
   const waitTime = Math.max(0, splashMinDuration - elapsed);
@@ -72,6 +78,7 @@ ipcMain.on('openApp', async () => {
   setTimeout(async () => {
     if (strapWindow) strapWindow.close();
 
+    // Restore window size logic from original (keep user sizing if possible)
     const hasSavedBounds = store.has('mainWindowBounds');
     const savedBounds = store.get('mainWindowBounds') as Electron.Rectangle;
 
@@ -92,6 +99,7 @@ ipcMain.on('openApp', async () => {
       mainWindow.maximize();
     }
 
+    // Persist window bounds
     const persistBounds = () => {
       if (mainWindow) {
         store.set('mainWindowBounds', mainWindow.getBounds());
@@ -101,6 +109,7 @@ ipcMain.on('openApp', async () => {
     mainWindow.on('move', persistBounds);
     mainWindow.on('close', persistBounds);
 
+    // CORS header helpers
     const UpsertKeyValue = (
       header: Record<string, string> | Record<string, string[]>,
       keyToChange: string,
@@ -221,8 +230,13 @@ async function getVatSysLoc(): Promise<string | null> {
 function runProcessElevated(command: string): Promise<void> {
   return new Promise((resolve, reject) => {
     sudoPrompt.exec(command, { name: 'vatACARS' }, (error, stdout, stderr) => {
+      if (stdout) {
+        console.log('runProcessElevated', stdout);
+      }
+      if (stderr) {
+        console.log('runProcessElevated', stderr);
+      }
       if (error) {
-        console.error('Elevated command error:', stderr || error);
         reject(error);
       } else {
         resolve();
