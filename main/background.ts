@@ -7,20 +7,76 @@ import { createWindow, download } from './helpers';
 import Store from 'electron-store';
 import sudoPrompt from '@vscode/sudo-prompt';
 import semver from 'semver';
+import axios from 'axios';
 import { spawnSync } from 'child_process';
-import axios from 'axios'; // Add to your dependencies if not present
 
-const GITHUB_REPO = "vatACARS/vatacars-hub"; // Change to your repo
+const GITHUB_REPO = "vatACARS/vatacars-hub";
 
+// Helper: Extract version from a string (e.g., title/body)
+function extractVersionFromString(text: string): string | null {
+  // Match patterns like 1.2.3, 1.2, v1.2.3, v1.2, Version 1.2, Release 1.2, etc.
+  const match = text.match(/(?:[Vv]ersion|[Rr]elease|[Vv])?\s*\.?\s*(\d+\.\d+(?:\.\d+)?)/);
+  if (match && match[1]) {
+    // If version is like 1.8, convert to 1.8.0 for semver
+    const parts = match[1].split('.');
+    if (parts.length === 2) return `${parts[0]}.${parts[1]}.0`;
+    return match[1];
+  }
+  return null;
+}
+
+// Helper: Only check for Version.json (or version.json) in plugin directory
+function scanPluginVersion(pluginDir: string): string | null {
+  // Try lowercase filename first; if not found then try "Version.json"
+  let versionJsonPath = path.join(pluginDir, 'version.json');
+  if (!fs.existsSync(versionJsonPath)) {
+    versionJsonPath = path.join(pluginDir, 'Version.json');
+  }
+  console.log(`[PluginLog] Checking for version file at: ${versionJsonPath}`);
+  if (fs.existsSync(versionJsonPath)) {
+    try {
+      const data = JSON.parse(fs.readFileSync(versionJsonPath, 'utf8'));
+      console.log(`[PluginLog] Parsed version file:`, data);
+      if (typeof data === 'string') return data;
+      if (typeof data.version === 'string') return data.version;
+      if (typeof data.Major !== 'undefined' && typeof data.Minor !== 'undefined') {
+        return `${data.Major}.${data.Minor}`;
+      }
+    } catch (err) {
+      console.warn(`[PluginLog] Failed to parse version file:`, err);
+    }
+  } else {
+    console.log(`[PluginLog] Version file does not exist at: ${versionJsonPath}`);
+  }
+  return null;
+}
+
+// App update check via GitHub releases
 async function checkForAppUpdate() {
   try {
     const response = await axios.get(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`);
     const latest = response.data;
-    const latestVersion = latest.tag_name.startsWith('v') ? latest.tag_name.slice(1) : latest.tag_name;
+    let latestVersion = latest.tag_name;
+
+    // If tag_name is not a valid semver, try to extract from title/body
+    if (!semver.valid(latestVersion)) {
+      const fromTitle = extractVersionFromString(latest.name || latest.title || "");
+      if (fromTitle && semver.valid(fromTitle)) {
+        latestVersion = fromTitle;
+      } else {
+        const fromBody = extractVersionFromString(latest.body || "");
+        if (fromBody && semver.valid(fromBody)) {
+          latestVersion = fromBody;
+        }
+      }
+    } else if (latestVersion.startsWith('v')) {
+      latestVersion = latestVersion.slice(1);
+    }
+
     const currentVersion = app.getVersion();
 
     return {
-      updateAvailable: require('semver').gt(latestVersion, currentVersion),
+      updateAvailable: semver.gt(latestVersion, currentVersion),
       latestVersion,
       currentVersion,
       releaseNotes: latest.body,
@@ -32,12 +88,42 @@ async function checkForAppUpdate() {
   }
 }
 
+// Plugin version check via GitHub releases
+async function getPluginRemoteVersion(repo: string): Promise<{ remoteVersion: string | null, downloadUrl: string | null }> {
+  try {
+    const response = await axios.get(`https://api.github.com/repos/${repo}/releases/latest`);
+    const latest = response.data;
+    let remoteVersion = latest.tag_name;
+
+    // If tag_name is not a valid semver, try to extract from title/body
+    if (!semver.valid(remoteVersion)) {
+      const fromTitle = extractVersionFromString(latest.name || latest.title || "");
+      if (fromTitle) {
+        remoteVersion = fromTitle;
+      } else {
+        const fromBody = extractVersionFromString(latest.body || "");
+        if (fromBody) {
+          remoteVersion = fromBody;
+        }
+      }
+    } else if (remoteVersion.startsWith('v')) {
+      remoteVersion = remoteVersion.slice(1);
+    }
+
+    const downloadUrl = latest.assets?.[0]?.browser_download_url || null;
+    return { remoteVersion, downloadUrl };
+  } catch (err) {
+    console.error("Failed to check plugin update:", err);
+    return { remoteVersion: null, downloadUrl: null };
+  }
+}
+
 let strapWindow, mainWindow;
 let splashStartTime: number;
 
 const isProd = process.env.NODE_ENV === 'production';
 
-// Correct store naming and userData path depending on environment
+// Store setup
 let store: Store;
 if (isProd) {
   serve({ directory: 'app' });
@@ -300,45 +386,6 @@ function extractVersionFromText(text: string): string | null {
   return match ? match[1] : null;
 }
 
-// Helper: Scan plugin directory for version (now only uses config or version.json)
-function scanPluginVersion(pluginDir: string, pluginName: string): string | null {
-  // 1. Check for version.json (universal for all plugins)
-  const versionJsonPath = path.join(pluginDir, 'version.json');
-  if (fs.existsSync(versionJsonPath)) {
-    try {
-      const data = JSON.parse(fs.readFileSync(versionJsonPath, 'utf8'));
-      // Accept both { "version": "x.y.z" }, "x.y.z", or { "Major": x, "Minor": y }
-      if (typeof data === 'string') return data;
-      if (typeof data.version === 'string') return data.version;
-      if (typeof data.Major !== 'undefined' && typeof data.Minor !== 'undefined') {
-        return `${data.Major}.${data.Minor}`;
-      }
-    } catch { }
-  }
-
-  // 2. For OzStrips, check .config file only
-  if (pluginName === 'OzStrips') {
-    const ozVersion = getOzStripsVersion(pluginDir);
-    if (ozVersion) return ozVersion;
-  }
-
-  // 3. Optionally, scan all files for version-like strings in text files (not DLLs)
-  if (fs.existsSync(pluginDir) && fs.lstatSync(pluginDir).isDirectory()) {
-    const files = fs.readdirSync(pluginDir);
-    for (const file of files) {
-      const filePath = path.join(pluginDir, file);
-      if (fs.lstatSync(filePath).isFile() && file.endsWith('.config')) {
-        try {
-          const content = fs.readFileSync(filePath, 'utf8');
-          const found = extractVersionFromText(content);
-          if (found) return found;
-        } catch { }
-      }
-    }
-  }
-  return null;
-}
-
 // Install or update plugin
 ipcMain.on('downloadPlugin', async (event, arg) => {
   const { pluginName, downloadUrl, version, extract, pluginType = 'dll' } = arg;
@@ -382,10 +429,10 @@ ipcMain.on('downloadPlugin', async (event, arg) => {
 
       const pluginExists = fs.existsSync(finalPath);
 
-      // Always log the version we tried to install, even if the plugin doesn't report it
+      // Save the version from the release for reference
       store.set(`plugin_${pluginName}_version`, version);
 
-      // Write install log to app's user data directory instead of Plugins directory
+      // Write install log
       const installLogDir = app.getPath('userData');
       fs.writeFileSync(
         path.join(installLogDir, `${pluginName}.installed_version.txt`),
@@ -442,13 +489,12 @@ ipcMain.on('uninstallPlugin', async (event, arg) => {
         await runProcessElevated(removeCommand);
       }
 
-      if (extract && fs.existsSync(path.join(pluginsDir, pluginName))) {
-        const removeDirCommand = `powershell -NoProfile -ExecutionPolicy Bypass -Command "Remove-Item -Path '${path.join(pluginsDir, pluginName)}' -Recurse -Force"`;
+      if (extract && fs.existsSync(extractPath)) {
+        const removeDirCommand = `powershell -NoProfile -ExecutionPolicy Bypass -Command "Remove-Item -Path '${extractPath}' -Recurse -Force"`;
         await runProcessElevated(removeDirCommand);
       }
 
-      const pluginStillExists = fs.existsSync(pluginPath) || (extract && fs.existsSync(path.join(pluginsDir, pluginName)));
-
+      const pluginStillExists = fs.existsSync(pluginPath) || (extract && fs.existsSync(extractPath));
       event.reply('uninstallPluginReply', {
         pluginName,
         status: pluginStillExists ? 'failed' : 'done',
@@ -465,7 +511,7 @@ ipcMain.on('uninstallPlugin', async (event, arg) => {
 ipcMain.on('checkDownloadedPlugin', async (event, arg) => {
   const pluginName = arg?.pluginName || 'vatACARS';
   const pluginType = arg?.pluginType || 'dll';
-  const remoteVersion = arg?.remoteVersion || null; // Pass this from your UI if available
+  const remoteVersion = arg?.remoteVersion || null;
 
   const vatSysLoc = await getVatSysLoc();
   if (!vatSysLoc) {
@@ -478,12 +524,26 @@ ipcMain.on('checkDownloadedPlugin', async (event, arg) => {
   let exists = fs.existsSync(pluginLoc) || fs.existsSync(extractDir);
   let installedVersion = null;
 
-  // Only use scanPluginVersion (which now only uses .config or version.json)
   if (fs.existsSync(extractDir)) {
-    exists = true;
-    installedVersion = scanPluginVersion(extractDir, pluginName);
+    // For extracted plugins, use ONLY the version file
+    installedVersion = scanPluginVersion(extractDir);
+    console.log(`[PluginLog] scanPluginVersion result for ${pluginName}:`, installedVersion);
   } else if (fs.existsSync(pluginLoc)) {
-    installedVersion = scanPluginVersion(pluginsDir, pluginName);
+    // For DLL plugins, check the install log
+    const installLogDir = app.getPath('userData');
+    const logFile = path.join(installLogDir, `${pluginName}.installed_version.txt`);
+    if (fs.existsSync(logFile)) {
+      const content = fs.readFileSync(logFile, 'utf8');
+      const match = content.match(/Installed version:\s*([^\n]+)/i);
+      if (match) installedVersion = match[1].trim();
+      console.log(`[PluginLog] Read installed version from log for ${pluginName}:`, installedVersion);
+    }
+  }
+
+  // For extracted plugins, DO NOT fallback to store (to avoid "latest")
+  if (!installedVersion && pluginType !== 'zip') {
+    installedVersion = store.get(`plugin_${pluginName}_version`) || null;
+    console.log(`[PluginLog] Fallback to store for ${pluginName}:`, installedVersion);
   }
 
   const updateAvailable = remoteVersion && installedVersion && semver.valid(remoteVersion) && semver.valid(installedVersion)
@@ -497,94 +557,6 @@ ipcMain.on('checkDownloadedPlugin', async (event, arg) => {
     remoteVersion,
     updateAvailable,
     status: exists ? 'available' : 'not-available'
-  });
-});
-
-// Update plugin (only if remote version is newer)
-ipcMain.on('updatePlugin', async (event, arg) => {
-  const { pluginName, downloadUrl, version, extract, pluginType = 'dll' } = arg;
-  if (!pluginName || !downloadUrl || !version) {
-    return event.reply('updatePluginReply', {
-      pluginName,
-      status: 'not-available',
-      error: 'Missing pluginName, downloadUrl, or version',
-    });
-  }
-
-  checkProcess('vatSys.exe', async (running) => {
-    if (running) {
-      return event.reply('updatePluginReply', { pluginName, status: 'running' });
-    }
-
-    const vatSysLoc = await getVatSysLoc();
-    if (!vatSysLoc) {
-      return event.reply('updatePluginReply', { pluginName, status: 'not-available', error: 'vatSys location not set' });
-    }
-
-    const pluginsDir = path.join(vatSysLoc, 'Plugins');
-    const pluginDir = extract ? path.join(pluginsDir, pluginName) : pluginsDir;
-    let currentVersion = null;
-
-    if (extract && fs.existsSync(pluginDir)) {
-      currentVersion = scanPluginVersion(pluginDir, pluginName);
-    } else if (!extract) {
-      const dllPath = path.join(pluginsDir, `${pluginName}.dll`);
-      currentVersion = getDllVersion(dllPath) || store.get(`plugin_${pluginName}_version`);
-    }
-
-    if (currentVersion && semver.valid(version) && semver.valid(currentVersion)) {
-      if (semver.gte(currentVersion, version)) {
-        return event.reply('updatePluginReply', {
-          pluginName,
-          status: 'up-to-date',
-          currentVersion,
-          remoteVersion: version,
-        });
-      }
-    }
-
-    const tempFile = path.join(app.getPath('userData'), `${pluginName}.${pluginType}`);
-    const finalPath = extract ? path.join(pluginsDir, pluginName) : path.join(pluginsDir, `${pluginName}.dll`);
-
-    try {
-      await download(downloadUrl, tempFile, (bytes, percent) => {
-        event.reply('updatePluginReply', { pluginName, status: 'downloading', bytes, percent });
-      });
-
-      event.reply('updatePluginReply', { pluginName, status: 'installing' });
-
-      const command = extract
-        ? `Expand-Archive -Path "${tempFile}" -DestinationPath "${finalPath}" -Force`
-        : `Copy-Item -Path "${tempFile}" -Destination "${finalPath}" -Force`;
-
-      await runProcessElevated(`powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -Command "Start-Process powershell -ArgumentList '${command}' -Verb RunAs -WindowStyle Hidden -Wait"`);
-
-      const pluginExists = fs.existsSync(finalPath);
-      store.set(`plugin_${pluginName}_version`, version);
-
-      event.reply('updatePluginReply', {
-        pluginName,
-        status: pluginExists ? 'updated' : 'failed',
-        error: pluginExists ? undefined : 'Plugin did not appear after update.',
-        currentVersion: version,
-        remoteVersion: version,
-      });
-    } catch (error) {
-      console.error("Plugin update failed:", error);
-      event.reply('updatePluginReply', {
-        pluginName,
-        status: 'failed',
-        error: error.message || String(error),
-      });
-    } finally {
-      if (fs.existsSync(tempFile)) {
-        try {
-          fs.unlinkSync(tempFile);
-        } catch (cleanupErr) {
-          console.warn(`Failed to remove temp file: ${tempFile}`, cleanupErr);
-        }
-      }
-    }
   });
 });
 

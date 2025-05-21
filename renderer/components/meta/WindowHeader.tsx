@@ -29,12 +29,6 @@ export default () => {
         >
           <VscChromeMaximize />
         </a>
-        <a
-          onClick={() => window.ipc.send('windowControl', 'close')}
-          className="px-4 flex items-center titlebar-button hover:bg-red-600 transition-all"
-        >
-          <VscChromeClose />
-        </a>
         <button onClick={handleClose} className="px-4 flex items-center titlebar-button hover:bg-red-600 transition-all">
           <VscChromeClose />
         </button>

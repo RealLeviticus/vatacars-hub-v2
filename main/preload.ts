@@ -23,6 +23,10 @@ const preloadPages = async () => {
     "/vatsys",
     "/pilot",
     "/OzStrips",
+    "/vatpacplugin",
+    "/discordplugin",
+    "/eventsplugin",
+    "/airportsplugin",
   ];
 
   for (const page of pagesToPreload) {
