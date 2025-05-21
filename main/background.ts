@@ -8,7 +8,6 @@ import Store from 'electron-store';
 import sudoPrompt from '@vscode/sudo-prompt';
 
 let strapWindow, mainWindow;
-let splashStartTime: number;
 
 const isProd = process.env.NODE_ENV === 'production';
 let store: Store<any>;
@@ -45,8 +44,6 @@ function initUpdates() {
 (async () => {
   await app.whenReady();
 
-  splashStartTime = Date.now();
-
   strapWindow = createWindow('bootstrapper', {
     width: 460,
     height: 220,
@@ -58,97 +55,78 @@ function initUpdates() {
     },
   });
 
-  const url = isProd ? 'app://./' : `http://localhost:${process.argv[2]}/`;
-  await strapWindow.loadURL(url);
+  if (isProd) {
+    await strapWindow.loadURL('app://./');
+  } else {
+    const port = process.argv[2];
+    await strapWindow.loadURL(`http://localhost:${port}/`);
+  }
 })();
 
 app.on('window-all-closed', () => {
   app.quit();
 });
 
-ipcMain.on('openApp', async (_event, _arg) => {
-  const splashMinDuration = 5000;
-  const elapsed = Date.now() - splashStartTime;
-  const waitTime = Math.max(0, splashMinDuration - elapsed);
+ipcMain.on('openApp', async (event, arg) => {
+  strapWindow.close();
+  mainWindow = createWindow('main', {
+    width: 1024,
+    height: 640,
+    center: true,
+    resizable: false,
+    frame: false,
+    useContentSize: true,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+    },
+  });
 
-  setTimeout(async () => {
-    if (strapWindow) strapWindow.close();
-
-    const hasSavedBounds = store.has('mainWindowBounds');
-    const savedBounds = store.get('mainWindowBounds') as Electron.Rectangle;
-
-    mainWindow = createWindow('main', {
-      width: savedBounds?.width || 1920,
-      height: savedBounds?.height || 1080,
-      x: savedBounds?.x,
-      y: savedBounds?.y,
-      resizable: true,
-      frame: false,
-      useContentSize: true,
-      webPreferences: {
-        preload: path.join(__dirname, 'preload.js'),
-      },
-    });
-
-    if (!hasSavedBounds) {
-      mainWindow.maximize();
+  const UpsertKeyValue = (
+    header: Record<string, string> | Record<string, string[]>,
+    keyToChange: string,
+    value: string | string[],
+  ) => {
+    for (const key of Object.keys(header)) {
+      if (key.toLowerCase() === keyToChange.toLowerCase()) {
+        header[key] = value;
+        return;
+      }
     }
+    header[keyToChange] = value;
+  };
 
-    const persistBounds = () => {
-      if (mainWindow) {
-        store.set('mainWindowBounds', mainWindow.getBounds());
-      }
-    };
-    mainWindow.on('resize', persistBounds);
-    mainWindow.on('move', persistBounds);
-    mainWindow.on('close', persistBounds);
+  mainWindow.webContents.session.webRequest.onBeforeSendHeaders((details, callback) => {
+    const { requestHeaders } = details;
+    UpsertKeyValue(requestHeaders, 'Access-Control-Allow-Origin', '*');
+    callback({ requestHeaders });
+  });
 
-    const UpsertKeyValue = (
-      header: Record<string, string> | Record<string, string[]>,
-      keyToChange: string,
-      value: string | string[],
-    ) => {
-      for (const key of Object.keys(header)) {
-        if (key.toLowerCase() === keyToChange.toLowerCase()) {
-          header[key] = value;
-          return;
-        }
-      }
-      header[keyToChange] = value;
-    };
-
-    mainWindow.webContents.session.webRequest.onBeforeSendHeaders((details, callback) => {
-      const { requestHeaders } = details;
-      UpsertKeyValue(requestHeaders, 'Access-Control-Allow-Origin', '*');
-      callback({ requestHeaders });
+  mainWindow.webContents.session.webRequest.onHeadersReceived((details, callback) => {
+    const { responseHeaders } = details;
+    UpsertKeyValue(responseHeaders, 'Access-Control-Allow-Origin', ['*']);
+    UpsertKeyValue(responseHeaders, 'Access-Control-Allow-Headers', ['*']);
+    callback({
+      responseHeaders,
     });
+  });
 
-    mainWindow.webContents.session.webRequest.onHeadersReceived((details, callback) => {
-      const { responseHeaders } = details;
-      UpsertKeyValue(responseHeaders, 'Access-Control-Allow-Origin', ['*']);
-      UpsertKeyValue(responseHeaders, 'Access-Control-Allow-Headers', ['*']);
-      callback({ responseHeaders });
-    });
-
+  if (isProd) {
+    await mainWindow.loadURL('app://./home');
+    setTimeout(() => initUpdates(), 3000);
+  } else {
     const port = process.argv[2];
-    if (isProd) {
-      await mainWindow.loadURL('app://./home');
-      setTimeout(() => initUpdates(), 3000);
-    } else {
-      await mainWindow.loadURL(`http://localhost:${port}/home`);
-      // Uncomment to simulate update or open devtools if desired
-      // setTimeout(() => mainWindow.webContents.send('updateAvailable', {}), 2000);
-      // mainWindow.webContents.openDevTools();
-    }
+    await mainWindow.loadURL(`http://localhost:${port}/home`);
+    //setTimeout(() => mainWindow.webContents.send('updateAvailable', {}), 2000);
+    //mainWindow.webContents.openDevTools();
+  }
 
-    mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-      require('electron').shell.openExternal(url);
-      return { action: 'deny' };
-    });
-  }, waitTime);
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    require('electron').shell.openExternal(url);
+    return { action: 'deny' };
+  });
 });
 
-ipcMain.on('windowControl', async (_event, arg) => {
+ipcMain.on('windowControl', async (event, arg) => {
   if (arg == 'minimize') return mainWindow.minimize();
   if (arg == 'maximize') return mainWindow.isMaximized() ? mainWindow.unmaximize() : mainWindow.maximize();
   if (arg == 'close') return mainWindow.close();
@@ -177,3 +155,124 @@ ipcMain.on('installUpdate', async (_event, _arg) => {
 ipcMain.on('restartApp', (_event, _arg) => {
   autoUpdater.quitAndInstall();
 });
+
+function checkProcess(query, cb) {
+  const exec = require('child_process').exec;
+
+  let platform = process.platform;
+  let cmd = '';
+  switch (platform) {
+    case 'win32':
+      cmd = `tasklist`;
+      break;
+    case 'darwin':
+      cmd = `ps -ax | grep ${query}`;
+      break;
+    case 'linux':
+      cmd = `ps -A`;
+      break;
+    default:
+      break;
+  }
+  exec(cmd, (err, stdout, stderr) => {
+    cb(stdout.toLowerCase().indexOf(query.toLowerCase()) > -1);
+  });
+}
+
+ipcMain.on('downloadPlugin', async (event, arg) => {
+  const { downloadUrl } = arg;
+
+  checkProcess('vatSys.exe', async (running) => {
+    if (running) return event.reply('downloadPluginReply', { status: 'running' });
+    let vatSysLoc = store.get('vatSysLoc');
+    if (!vatSysLoc) {
+      if (fs.existsSync('C:\\Program Files (x86)\\vatSys\\bin')) {
+        vatSysLoc = 'C:\\Program Files (x86)\\vatSys\\bin';
+      } else
+        vatSysLoc = dialog
+          .showOpenDialogSync({
+            title: 'Select your vatSys.exe installation.',
+            properties: ['openFile'],
+            filters: [{ name: 'vatSys.exe', extensions: ['exe'] }],
+          })[0]
+          .split('\\')
+          .slice(0, -1)
+          .join('\\');
+      store.set('vatSysLoc', vatSysLoc);
+    }
+
+    const pluginLoc = path.join(app.getPath('userData'), 'vatACARS.dll');
+    await download(downloadUrl, pluginLoc, (bytes, percent) => {
+      event.reply('downloadPluginReply', { status: 'downloading', bytes, percent });
+    });
+
+    const command = `copy /Y "${pluginLoc}" "${vatSysLoc}\\Plugins\\vatACARS.dll"`;
+    await event.reply('downloadPluginReply', { status: 'installing' });
+    await runProcessElevated(command).catch(() => {
+      return event.reply('downloadPluginReply', { status: 'failed' });
+    });
+
+    store.set('pluginInstalledVersion', arg.version);
+    event.reply('checkDownloadedPluginReply', { installed: true, version: arg.version });
+    return event.reply('downloadPluginReply', { status: 'done' });
+  });
+});
+
+ipcMain.on('uninstallPlugin', async (event, arg) => {
+  checkProcess('vatSys.exe', async (running) => {
+    if (running) return event.reply('uninstallPluginReply', { status: 'running' });
+    let vatSysLoc = store.get('vatSysLoc');
+    if (!vatSysLoc) {
+      if (fs.existsSync('C:\\Program Files (x86)\\vatSys\\bin')) {
+        vatSysLoc = 'C:\\Program Files (x86)\\vatSys\\bin';
+      } else
+        vatSysLoc = dialog
+          .showOpenDialogSync({
+            title: 'Select your vatSys.exe installation.',
+            properties: ['openFile'],
+            filters: [{ name: 'vatSys.exe', extensions: ['exe'] }],
+          })[0]
+          .split('\\')
+          .slice(0, -1)
+          .join('\\');
+      store.set('vatSysLoc', vatSysLoc);
+    }
+
+    const pluginLoc = path.join(vatSysLoc, 'Plugins\\vatACARS.dll');
+    const command = `del /Q "${pluginLoc}"`;
+    await runProcessElevated(command).catch(() => {
+      return event.reply('uninstallPluginReply', { status: 'failed' });
+    });
+
+    return event.reply('uninstallPluginReply', { status: 'done' });
+  });
+});
+
+ipcMain.on('checkDownloadedPlugin', async (event, arg) => {
+  let vatSysLoc = store.get('vatSysLoc');
+  if (!vatSysLoc) return event.reply('checkDownloadedPluginReply', { installed: false });
+
+  const pluginLoc = path.join(vatSysLoc, 'Plugins\\vatACARS.dll');
+  const exists = require('fs').existsSync(pluginLoc);
+  let cVer = store.get('pluginInstalledVersion');
+  if (!cVer) store.set('pluginInstalledVersion', '1.0.1');
+  event.reply('checkDownloadedPluginReply', { installed: exists, version: exists ? cVer || '1.0.1' : null });
+});
+
+function runProcessElevated(command: string) {
+  return new Promise<string>((resolve, reject) => {
+    sudoPrompt.exec(command, { name: 'Install vatACARS' }, (error, stdout, stderr) => {
+      if (stdout) {
+        console.log('runProcessElevated', stdout);
+      }
+      if (stderr) {
+        console.log('runProcessElevated', stderr);
+      }
+      if (error) {
+        reject(error);
+      } else {
+        resolve(stdout.toString());
+      }
+    });
+  });
+}
