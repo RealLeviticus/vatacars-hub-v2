@@ -5,13 +5,11 @@
   "version": "2.0.0-alpha",
   "author": "vatACARS Team",
   "main": "app/background.js",
-  "scripts": {
-    "dev": "dotenv nextron",
-    "build": "dotenv nextron build",
-    "export": "next export",
-    "postinstall": "dotenv electron-builder install-app-deps",
-    "release": "dotenv electron-builder",
-    "start": "cross-env NODE_ENV=production electron ."
+    "scripts": {
+    "dev": "nextron",
+    "build": "nextron build",
+    "postinstall": "electron-builder install-app-deps",
+    "release": "electron-builder"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.1",
