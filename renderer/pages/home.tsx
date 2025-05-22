@@ -64,7 +64,7 @@ function UpdateModal({
   );
 }
 
-const description = "Welcome to vatACARS Hub, the new home for all things to do with vatSys Plugins";
+const description = "Welcome to vatACARS Hub. Manage your plugins and keep them up to date.";
 
 export default function Home() {
   const [typed, setTyped] = useState("");
