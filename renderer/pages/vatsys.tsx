@@ -47,7 +47,7 @@ export default function VatSysPage() {
                     <p className="text-slate-300 mt-2">Plugin for vatSys integration.</p>
                     <div className="mt-8 w-full max-w-xl">
                         <PluginInstaller
-                            pluginName="vatacars-vatsys-plugin"
+                            pluginName="vatACARS"
                             repo="vatacars/vatsys-plugin"
                         />
                     </div>
