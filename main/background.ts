@@ -9,6 +9,7 @@ import sudoPrompt from '@vscode/sudo-prompt';
 import semver from 'semver';
 import { spawnSync } from 'child_process';
 import axios from 'axios'; // Add to your dependencies if not present
+import AdmZip from "adm-zip";
 
 const GITHUB_REPO = "vatACARS/hub"; // Change to your repo
 
@@ -358,17 +359,23 @@ function extractVersionFromString(text: string): string | null {
 
 // Helper: Scan plugin directory for version (now only uses config or version.json)
 function scanPluginVersion(pluginDir: string, pluginName: string): string | null {
-  // 1. Check for version.json (universal for all plugins)
+  // 1. Prefer version.json (universal for all plugins)
   const versionJsonPath = path.join(pluginDir, 'version.json');
   if (fs.existsSync(versionJsonPath)) {
     try {
       const data = JSON.parse(fs.readFileSync(versionJsonPath, 'utf8'));
-      // Accept both { "version": "x.y.z" }, "x.y.z", or { "Major": x, "Minor": y }
-      if (typeof data === 'string') return data;
-      if (typeof data.version === 'string') return data.version;
-      if (typeof data.Major !== 'undefined' && typeof data.Minor !== 'undefined') {
-        return `${data.Major}.${data.Minor}`;
+      // Accept { "Major": x, "Minor": y, "Patch": z }
+      if (
+        typeof data.Major === 'number' &&
+        typeof data.Minor === 'number' &&
+        typeof data.Patch === 'number'
+      ) {
+        return `${data.Major}.${data.Minor}.${data.Patch}`;
       }
+      // Accept { "version": "x.y.z" }
+      if (typeof data.version === 'string') return data.version;
+      // Accept just a string
+      if (typeof data === 'string') return data;
     } catch { }
   }
 
@@ -738,4 +745,35 @@ ipcMain.handle('getSeenVersion', async () => {
 ipcMain.handle('getAppVersion', () => {
   return app.getVersion();
 });
+
+function extractZipFlatten(zipPath: string, destDir: string) {
+  const zip = new AdmZip(zipPath);
+  const entries = zip.getEntries();
+
+  // Find the common prefix (top-level folder) if it exists
+  let commonPrefix = null;
+  if (entries.length > 0) {
+    const first = entries[0].entryName.split('/')[0];
+    if (entries.every(e => e.entryName.startsWith(first + '/'))) {
+      commonPrefix = first + '/';
+    }
+  }
+
+  entries.forEach(entry => {
+    let entryName = entry.entryName;
+    // Remove the common prefix if present
+    if (commonPrefix && entryName.startsWith(commonPrefix)) {
+      entryName = entryName.slice(commonPrefix.length);
+    }
+    if (!entryName) return; // skip root folder entry
+
+    const destPath = path.join(destDir, entryName);
+    if (entry.isDirectory) {
+      fs.mkdirSync(destPath, { recursive: true });
+    } else {
+      fs.mkdirSync(path.dirname(destPath), { recursive: true });
+      fs.writeFileSync(destPath, entry.getData());
+    }
+  });
+}
 
