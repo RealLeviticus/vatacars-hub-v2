@@ -7,6 +7,11 @@ const handleClose = () => {
   window.ipc.send('saveAndClose');
 };
 
+const handleMaximize = () => {
+  // @ts-ignore
+  window.ipc.send('windowControl', 'maximize');
+};
+
 export default () => {
   return (
     <div className="h-7 titlebar flex justify-between items-center bg-zinc-900 text-zinc-200 font-semibold border-b border-zinc-600">
@@ -24,7 +29,7 @@ export default () => {
           <VscChromeMinimize />
         </a>
         <a
-          onClick={() => window.ipc.send('windowControl', 'maximize')}
+          onClick={handleMaximize}
           className="px-4 flex items-center titlebar-button hover:bg-zinc-700 transition-all"
         >
           <VscChromeMaximize />

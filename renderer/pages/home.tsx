@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import ReactMarkdown from "react-markdown";
 import Layout from "../components/Layout";
 import { Toaster } from "react-hot-toast";
 
@@ -28,10 +29,11 @@ function UpdateModal({
           Version <span className="font-semibold text-blue-300">{updateInfo.latestVersion}</span>
         </p>
         <div className="mb-6 max-h-72 overflow-y-auto border border-slate-700 rounded-lg p-4 bg-slate-800">
-          <div
-            className="prose prose-sm prose-invert text-slate-200"
-            dangerouslySetInnerHTML={{ __html: updateInfo.releaseNotes || "No changelog provided." }}
-          />
+          <div className="prose prose-sm prose-invert text-slate-200">
+            <ReactMarkdown>
+              {updateInfo.releaseNotes || "No changelog provided."}
+            </ReactMarkdown>
+          </div>
         </div>
 
         <div className="flex justify-end gap-3">
@@ -196,10 +198,13 @@ export default function Home() {
             alt="vatACARS Logo"
             className="w-full max-w-[400px] h-auto object-contain pointer-events-none mb-4"
           />
-          <h1 className="text-4xl font-bold">
+          <h1 className="mt-6 text-lg md:text-2xl text-blue-100 font-normal text-center drop-shadow">
             <span>{typed}</span>
             <span className="animate-pulse text-slate-400">|</span>
           </h1>
+          {/* Updated description styling */}
+          <p className="mt-6 text-lg md:text-2xl text-blue-100 font-normal text-center drop-shadow">
+          </p>
         </div>
       </div>
     </Layout>

@@ -6,22 +6,22 @@ interface PluginInstallerProps {
     repo: string; // e.g., 'maxrumsey/OzStrips'
 }
 
+// Remove global cache and revert to fetching versions in the component
 export default function PluginInstaller({ pluginName, repo }: PluginInstallerProps) {
     const [status, setStatus] = useState<"not_installed" | "installed" | "update_available" | "not_available">("not_installed");
     const [installing, setInstalling] = useState(false);
     const [progress, setProgress] = useState(0);
-    const [flash, setFlash] = useState(false);
-    const [showCheckmark, setShowCheckmark] = useState(false);
     const [pluginVersion, setPluginVersion] = useState<string | null>(null);
     const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
-    const [pluginLog, setPluginLog] = useState<string[]>([]);
     const [pluginType, setPluginType] = useState<'zip' | 'dll' | null>(null);
     const [installedVersion, setInstalledVersion] = useState<string | null>(null);
     const [showLog, setShowLog] = useState(false);
+    const [pluginLog, setPluginLog] = useState<string[]>([]);
 
     // Log helper
     const log = (msg: string) => {
-        setPluginLog(prev => [...prev.slice(-9), msg]);
+        setPluginLog(logs => [...logs, msg]);
+        console.log(`[${pluginName}] ${msg}`);
     };
 
     // Fetch latest release info from GitHub
@@ -29,36 +29,23 @@ export default function PluginInstaller({ pluginName, repo }: PluginInstallerPro
         try {
             const response = await fetch(`https://api.github.com/repos/${repo}/releases/latest`);
             if (!response.ok) {
-                // If the repo or release doesn't exist, mark as not available
-                log("No release found for this plugin.");
                 setStatus("not_available");
-                setDownloadUrl(null);
-                setPluginVersion(null);
-                setPluginType(null);
                 return;
             }
+
             const data = await response.json();
             const asset = data.assets?.find((a: any) => a.name.endsWith('.zip') || a.name.endsWith('.dll'));
 
             if (asset) {
-                setDownloadUrl(asset.browser_download_url);
                 setPluginVersion(data.tag_name);
                 setPluginType(asset.name.endsWith('.zip') ? 'zip' : 'dll');
-                log(`Fetched latest plugin version: ${data.tag_name}`);
+                setDownloadUrl(asset.browser_download_url);
             } else {
-                log("No DLL or ZIP asset found in latest release.");
                 setStatus("not_available");
-                setDownloadUrl(null);
-                setPluginVersion(null);
-                setPluginType(null);
             }
-        } catch (error: any) {
+        } catch (error) {
             console.error("Error fetching release:", error);
-            log("Failed to fetch release info from GitHub.");
             setStatus("not_available");
-            setDownloadUrl(null);
-            setPluginVersion(null);
-            setPluginType(null);
         }
     };
 
@@ -77,13 +64,11 @@ export default function PluginInstaller({ pluginName, repo }: PluginInstallerPro
     useEffect(() => {
         fetchLatestRelease();
         fetchInstalledVersionFromFile();
-        // eslint-disable-next-line
     }, []);
 
     // Check installed plugin version when version/type changes
     useEffect(() => {
         if (!pluginVersion || !pluginType) return;
-        log("Checking for installed plugin...");
         window.ipc.send('checkDownloadedPlugin', {
             pluginName,
             pluginType,
@@ -95,16 +80,9 @@ export default function PluginInstaller({ pluginName, repo }: PluginInstallerPro
             if (reply.pluginName !== pluginName) return;
 
             if (reply.installed) {
-                log(`Installed version: ${reply.installedVersion}`);
                 setInstalledVersion(reply.installedVersion || null);
-                if (reply.updateAvailable) {
-                    log(`Update available: ${pluginVersion}`);
-                    setStatus("update_available");
-                } else {
-                    setStatus("installed");
-                }
+                setStatus(reply.updateAvailable ? "update_available" : "installed");
             } else {
-                log("Plugin not installed.");
                 setInstalledVersion(null);
                 setStatus("not_installed");
             }
@@ -228,11 +206,11 @@ export default function PluginInstaller({ pluginName, repo }: PluginInstallerPro
             <div className="mb-2 text-slate-200 font-semibold">
                 Installed Version: {installedVersion ?? "Not installed"}
             </div>
-            <div className={`flex items-center justify-center transition-all duration-500 ease-out ${showCheckmark ? "gap-4 translate-x-[-10px]" : "gap-0 translate-x-0"}`}>
+            <div className={`flex items-center justify-center transition-all duration-500 ease-out`}>
                 <button
                     onClick={handleButtonClick}
                     disabled={isButtonDisabled()}
-                    className={`px-6 py-3 rounded-lg font-semibold shadow transition-all duration-300 flex items-center justify-center gap-2 ${getButtonColor()} ${flash ? "animate-pulse" : ""}`}
+                    className={`px-6 py-3 rounded-lg font-semibold shadow transition-all duration-300 flex items-center justify-center gap-2 ${getButtonColor()} ${installing ? "animate-pulse" : ""}`}
                 >
                     {installing && (
                         <svg className="animate-spin h-5 w-5 text-white" style={{ animationDuration: "0.5s" }} xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -243,9 +221,9 @@ export default function PluginInstaller({ pluginName, repo }: PluginInstallerPro
                     <span className="transition-opacity duration-300">{getButtonLabel()}</span>
                 </button>
 
-                {showCheckmark && (
+                {/* {showCheckmark && (
                     <FaCheckCircle className="text-green-400 text-3xl animate-fade-in" />
-                )}
+                )} */}
             </div>
 
             {installing && (

@@ -9,9 +9,39 @@ import sudoPrompt from '@vscode/sudo-prompt';
 import semver from 'semver';
 import { spawnSync } from 'child_process';
 import axios from 'axios'; // Add to your dependencies if not present
-import AdmZip from "adm-zip";
 
 const GITHUB_REPO = "vatACARS/hub"; // Change to your repo
+
+// Helper: Extracts a semver version from a string (e.g., "Release v1.2.3" => "1.2.3")
+function extractVersionFromString(input: string): string | null {
+  const match = input.match(/\b\d+\.\d+\.\d+(-[A-Za-z0-9-.]+)?\b/);
+  return match ? match[0] : null;
+}
+
+// Helper: Write version.json if missing and version is valid
+function ensureVersionJson(dir: string, version: string | null) {
+  const versionJsonPath = path.join(dir, 'version.json');
+  if (!fs.existsSync(versionJsonPath) && version && semver.valid(version)) {
+    fs.writeFileSync(versionJsonPath, JSON.stringify({ version }, null, 2), 'utf8');
+  }
+}
+
+// Helper: Write version.json if missing or if scanPluginVersion returns null and version is valid
+function ensureVersionJsonOverwriteIfNull(dir: string, version: string | null) {
+  const versionJsonPath = path.join(dir, 'version.json');
+  let shouldWrite = false;
+  if (!fs.existsSync(versionJsonPath)) {
+    shouldWrite = true;
+  } else {
+    // If version.json exists but scanPluginVersion returns null, overwrite it
+    if (scanPluginVersion(dir, "") === null) {
+      shouldWrite = true;
+    }
+  }
+  if (shouldWrite && version && semver.valid(version)) {
+    fs.writeFileSync(versionJsonPath, JSON.stringify({ version }, null, 2), 'utf8');
+  }
+}
 
 async function checkForAppUpdate() {
   try {
@@ -130,27 +160,38 @@ ipcMain.on('openApp', async () => {
   setTimeout(async () => {
     if (strapWindow) strapWindow.close();
 
-    // Restore window size logic from original (keep user sizing if possible)
+    // Always use saved window bounds if available, otherwise center on main monitor
     const hasSavedBounds = store.has('mainWindowBounds');
     const savedBounds = store.get('mainWindowBounds') as Electron.Rectangle;
 
-    mainWindow = createWindow('main', {
+    let mainWindowOptions: Electron.BrowserWindowConstructorOptions = {
       width: savedBounds?.width || 1920,
       height: savedBounds?.height || 1080,
-      x: savedBounds?.x,
-      y: savedBounds?.y,
       resizable: true,
       frame: false,
       useContentSize: true,
       webPreferences: {
         preload: path.join(__dirname, 'preload.js'),
       },
-    });
+    };
 
-    if (!hasSavedBounds) {
-      mainWindow.maximize();
+    if (hasSavedBounds && savedBounds) {
+      mainWindowOptions = {
+        ...mainWindowOptions,
+        x: savedBounds.x,
+        y: savedBounds.y,
+      };
+    } else {
+      // Center on main monitor if no saved bounds
+      const { screen } = require('electron');
+      const primaryDisplay = screen.getPrimaryDisplay();
+      mainWindowOptions.x = Math.floor(primaryDisplay.bounds.x + (primaryDisplay.workAreaSize.width - mainWindowOptions.width) / 2);
+      mainWindowOptions.y = Math.floor(primaryDisplay.bounds.y + (primaryDisplay.workAreaSize.height - mainWindowOptions.height) / 2);
     }
 
+    mainWindow = createWindow('main', mainWindowOptions);
+
+    // Do not maximize if no saved bounds; just center
     // Persist window bounds
     const persistBounds = () => {
       if (mainWindow) {
@@ -326,85 +367,53 @@ function getDllVersion(dllPath: string): string | null {
   return null;
 }
 
-// Helper: Extract OzStrips version from OzStrips.dll.config
-function getOzStripsVersion(pluginDir: string): string | null {
-  const configPath = path.join(pluginDir, 'OzStrips.dll.config');
-  if (!fs.existsSync(configPath)) return null;
-  try {
-    const content = fs.readFileSync(configPath, 'utf8');
-    // Looks for patterns like 1.2.3 or v1.2.3
-    const match = content.match(/v?(\d+\.\d+\.\d+([a-zA-Z0-9\-\.]*)?)/);
-    return match ? match[1] : null;
-  } catch {
-    return null;
-  }
-}
-
-// Helper: Try to extract version from a file's contents
-function extractVersionFromText(text: string): string | null {
-  // Looks for patterns like 1.2.3 or v1.2.3
-  const match = text.match(/v?(\d+\.\d+\.\d+([a-zA-Z0-9\-\.]*)?)/);
-  return match ? match[1] : null;
-}
-
-function extractVersionFromString(text: string): string | null {
-  const match = text.match(/(?:[Vv]ersion|[Rr]elease|[Vv])?\s*\.?\s*(\d+\.\d+(?:\.\d+)?(?:-[\w\.]+)?)/);
-  if (match && match[1]) {
-    const parts = match[1].split('.');
-    if (parts.length === 2) return `${parts[0]}.${parts[1]}.0`;
-    return match[1];
-  }
-  return null;
-}
-
-// Helper: Scan plugin directory for version (now only uses config or version.json)
+// Helper: Scan plugin directory for version (now only uses version.json)
 function scanPluginVersion(pluginDir: string, pluginName: string): string | null {
-  // 1. Prefer version.json (universal for all plugins)
   const versionJsonPath = path.join(pluginDir, 'version.json');
   if (fs.existsSync(versionJsonPath)) {
     try {
-      const data = JSON.parse(fs.readFileSync(versionJsonPath, 'utf8'));
+      const rawData = fs.readFileSync(versionJsonPath, 'utf8');
+      console.log(`[Debug] Raw version.json content for ${pluginName}:`, rawData);
+
+      // Sanitize the content by removing invalid characters
+      const sanitizedData = rawData.replace(/[\u0000-\u001F\u007F-\u009F]/g, '').trim();
+      console.log(`[Debug] Sanitized version.json content for ${pluginName}:`, sanitizedData);
+
+      const data = JSON.parse(sanitizedData);
+      console.log(`[Debug] Parsed version.json for ${pluginName}:`, data);
+
       // Accept { "Major": x, "Minor": y, "Patch": z }
-      if (
-        typeof data.Major === 'number' &&
-        typeof data.Minor === 'number' &&
-        typeof data.Patch === 'number'
-      ) {
-        return `${data.Major}.${data.Minor}.${data.Patch}`;
+      if (typeof data.Major === 'number' && typeof data.Minor === 'number') {
+        if (typeof data.Patch === 'number') {
+          return `${data.Major}.${data.Minor}.${data.Patch}`;
+        } else {
+          return `${data.Major}.${data.Minor}`;
+        }
       }
+
       // Accept { "version": "x.y.z" }
-      if (typeof data.version === 'string') return data.version;
-      // Accept just a string
-      if (typeof data === 'string') return data;
-    } catch { }
-  }
-
-  // 2. For OzStrips, check .config file only
-  if (pluginName === 'OzStrips') {
-    const ozVersion = getOzStripsVersion(pluginDir);
-    if (ozVersion) return ozVersion;
-  }
-
-  // 3. Optionally, scan all files for version-like strings in text files (not DLLs)
-  if (fs.existsSync(pluginDir) && fs.lstatSync(pluginDir).isDirectory()) {
-    const files = fs.readdirSync(pluginDir);
-    for (const file of files) {
-      const filePath = path.join(pluginDir, file);
-      if (fs.lstatSync(filePath).isFile() && file.endsWith('.config')) {
-        try {
-          const content = fs.readFileSync(filePath, 'utf8');
-          const found = extractVersionFromText(content);
-          if (found) return found;
-        } catch { }
+      if (typeof data.version === 'string') {
+        return data.version;
       }
+
+      // Accept just a string
+      if (typeof data === 'string') {
+        return data;
+      }
+
+      console.warn(`[Debug] version.json for ${pluginName} does not contain a valid version format.`);
+    } catch (error) {
+      console.error(`[Error] Failed to parse version.json for ${pluginName}:`, error);
     }
+  } else {
+    console.warn(`[Debug] version.json not found for ${pluginName} in ${pluginDir}`);
   }
   return null;
 }
 
 // Install or update plugin
 ipcMain.on('downloadPlugin', async (event, arg) => {
-  const { pluginName, downloadUrl, version, extract, pluginType = 'dll' } = arg;
+  const { pluginName, downloadUrl, version, extract, pluginType = 'dll', releaseTitle, releaseBody } = arg;
 
   if (!pluginName || !downloadUrl) {
     return event.reply('downloadPluginReply', {
@@ -437,11 +446,53 @@ ipcMain.on('downloadPlugin', async (event, arg) => {
 
       event.reply('downloadPluginReply', { pluginName, status: 'installing' });
 
-      const command = extract
-        ? `powershell -NoProfile -ExecutionPolicy Bypass -Command "Expand-Archive -Path '${tempFile}' -DestinationPath '${finalPath}' -Force"`
-        : `copy /Y "${tempFile}" "${finalPath}"`;
+      // Determine version to use for version.json
+      let versionToWrite = null;
+      if (semver.valid(version)) {
+        versionToWrite = version;
+      } else if (releaseTitle && semver.valid(extractVersionFromString(releaseTitle))) {
+        versionToWrite = extractVersionFromString(releaseTitle);
+      } else if (releaseBody && semver.valid(extractVersionFromString(releaseBody))) {
+        versionToWrite = extractVersionFromString(releaseBody);
+      }
 
-      await runProcessElevated(command);
+      if (extract) {
+        // Remove existing plugin folder if present
+        if (fs.existsSync(finalPath)) {
+          const removeDirCommand = `powershell -NoProfile -ExecutionPolicy Bypass -Command "Remove-Item -Path '${finalPath}' -Recurse -Force"`;
+          await runProcessElevated(removeDirCommand);
+        }
+
+        // Move the folder directly from the .zip to the final plugin directory
+        await moveFolderFromZip(tempFile, finalPath);
+      } else {
+        // For DLL plugins, create a temp folder, put DLL and version.json, then move
+        const tmpDllDir = path.join(app.getPath('userData'), `${pluginName}_tmp_dll`);
+        if (fs.existsSync(tmpDllDir)) fs.rmSync(tmpDllDir, { recursive: true, force: true });
+        fs.mkdirSync(tmpDllDir, { recursive: true });
+        // Move DLL into temp dir
+        const dllDest = path.join(tmpDllDir, `${pluginName}.dll`);
+        fs.copyFileSync(tempFile, dllDest);
+        // Ensure version.json exists
+        ensureVersionJsonOverwriteIfNull(tmpDllDir, versionToWrite);
+
+        // Move DLL and version.json to plugins dir (elevated)
+        const moveDllCommand = `powershell -NoProfile -ExecutionPolicy Bypass -Command "Copy-Item -Path '${dllDest}' -Destination '${finalPath}' -Force"`;
+        await runProcessElevated(moveDllCommand);
+
+        // Also copy version.json
+        const versionJsonPath = path.join(tmpDllDir, 'version.json');
+        if (fs.existsSync(versionJsonPath)) {
+          const versionJsonDest = path.join(pluginsDir, 'version.json');
+          const moveVersionJsonCommand = `powershell -NoProfile -ExecutionPolicy Bypass -Command "Copy-Item -Path '${versionJsonPath}' -Destination '${versionJsonDest}' -Force"`;
+          await runProcessElevated(moveVersionJsonCommand);
+        }
+
+        // Clean up temp dll dir
+        if (fs.existsSync(tmpDllDir)) {
+          try { fs.rmSync(tmpDllDir, { recursive: true, force: true }); } catch { }
+        }
+      }
 
       const pluginExists = fs.existsSync(finalPath);
 
@@ -450,9 +501,19 @@ ipcMain.on('downloadPlugin', async (event, arg) => {
 
       // Write install log to app's user data directory instead of Plugins directory
       const installLogDir = app.getPath('userData');
+
+      // Read version from version.json in the plugin directory (after move)
+      let installedVersion: string | null = null;
+      if (extract && fs.existsSync(finalPath)) {
+        installedVersion = scanPluginVersion(finalPath, pluginName);
+      } else if (!extract && fs.existsSync(finalPath)) {
+        // For DLL, version.json is in Plugins folder
+        installedVersion = scanPluginVersion(path.dirname(finalPath), pluginName);
+      }
+
       fs.writeFileSync(
         path.join(installLogDir, `${pluginName}.installed_version.txt`),
-        `Installed version: ${version}\nInstalled at: ${new Date().toISOString()}\n`
+        `Installed version: ${installedVersion ?? version}\nInstalled at: ${new Date().toISOString()}\n`
       );
 
       event.reply('downloadPluginReply', {
@@ -528,7 +589,7 @@ ipcMain.on('uninstallPlugin', async (event, arg) => {
 ipcMain.on('checkDownloadedPlugin', async (event, arg) => {
   const pluginName = arg?.pluginName || 'vatACARS';
   const pluginType = arg?.pluginType || 'dll';
-  const remoteVersion = arg?.remoteVersion || null; // Pass this from your UI if available
+  const remoteVersion = arg?.remoteVersion || null;
 
   const vatSysLoc = await getVatSysLoc();
   if (!vatSysLoc) {
@@ -538,14 +599,15 @@ ipcMain.on('checkDownloadedPlugin', async (event, arg) => {
   const pluginsDir = path.join(vatSysLoc, 'Plugins');
   const pluginLoc = path.join(pluginsDir, `${pluginName}.${pluginType}`);
   const extractDir = path.join(pluginsDir, pluginName);
-  let exists = fs.existsSync(pluginLoc) || fs.existsSync(extractDir);
+
+  let exists = false;
   let installedVersion = null;
 
-  // Only use scanPluginVersion (which now only uses .config or version.json)
   if (fs.existsSync(extractDir)) {
     exists = true;
     installedVersion = scanPluginVersion(extractDir, pluginName);
   } else if (fs.existsSync(pluginLoc)) {
+    exists = true;
     installedVersion = scanPluginVersion(pluginsDir, pluginName);
   }
 
@@ -559,7 +621,7 @@ ipcMain.on('checkDownloadedPlugin', async (event, arg) => {
     installedVersion,
     remoteVersion,
     updateAvailable,
-    status: exists ? 'available' : 'not-available'
+    status: exists ? 'available' : 'not-available',
   });
 });
 
@@ -746,34 +808,119 @@ ipcMain.handle('getAppVersion', () => {
   return app.getVersion();
 });
 
-function extractZipFlatten(zipPath: string, destDir: string) {
-  const zip = new AdmZip(zipPath);
-  const entries = zip.getEntries();
+// Helper: Move files from a temporary directory to the final plugin directory with elevated permissions
+async function moveFilesToFinalLocation(tempDir: string, finalDir: string): Promise<void> {
+  const moveCommand = `powershell -NoProfile -ExecutionPolicy Bypass -Command "Move-Item -Path '${tempDir}\\*' -Destination '${finalDir}' -Force"`;
+  await runProcessElevated(moveCommand);
+}
 
-  // Find the common prefix (top-level folder) if it exists
-  let commonPrefix = null;
-  if (entries.length > 0) {
-    const first = entries[0].entryName.split('/')[0];
-    if (entries.every(e => e.entryName.startsWith(first + '/'))) {
-      commonPrefix = first + '/';
+// Helper: Move extracted files to the final plugin directory, ensuring no nested folders
+async function moveExtractedFilesToFinalDir(tempDir: string, finalDir: string): Promise<void> {
+  const files = fs.readdirSync(tempDir, { withFileTypes: true });
+
+  // If there's only one folder inside the temp directory, check its contents
+  if (files.length === 1 && files[0].isDirectory()) {
+    const nestedDir = path.join(tempDir, files[0].name);
+    const nestedFiles = fs.readdirSync(nestedDir, { withFileTypes: true });
+
+    // Ensure the nested folder contains the expected files (.dll and version.json)
+    const hasDll = nestedFiles.some(file => file.name.endsWith('.dll'));
+    const hasVersionJson = nestedFiles.some(file => file.name === 'version.json');
+
+    if (hasDll && hasVersionJson) {
+      // Move the contents of the nested folder to the final directory
+      for (const file of nestedFiles) {
+        const sourcePath = path.join(nestedDir, file.name);
+        const targetPath = path.join(finalDir, file.name);
+        const moveCommand = `powershell -NoProfile -ExecutionPolicy Bypass -Command "Move-Item -Path '${sourcePath}' -Destination '${targetPath}' -Force"`;
+        await runProcessElevated(moveCommand);
+      }
+    } else {
+      throw new Error("The extracted folder does not contain the required .dll and version.json files.");
+    }
+  } else {
+    // If no nested folder, ensure the temp directory itself contains the expected files
+    const hasDll = files.some(file => file.name.endsWith('.dll'));
+    const hasVersionJson = files.some(file => file.name === 'version.json');
+
+    if (hasDll && hasVersionJson) {
+      // Move all files from the temp directory to the final directory
+      for (const file of files) {
+        const sourcePath = path.join(tempDir, file.name);
+        const targetPath = path.join(finalDir, file.name);
+        const moveCommand = `powershell -NoProfile -ExecutionPolicy Bypass -Command "Move-Item -Path '${sourcePath}' -Destination '${targetPath}' -Force"`;
+        await runProcessElevated(moveCommand);
+      }
+    } else {
+      throw new Error("The extracted folder does not contain the required .dll and version.json files.");
+    }
+  }
+}
+
+// Helper: Find the folder containing the required files (.dll and version.json)
+function findPluginFolder(dir: string): string | null {
+  const files = fs.readdirSync(dir, { withFileTypes: true });
+
+  // Check if the current directory contains the required files
+  const hasDll = files.some(file => file.isFile() && file.name.endsWith('.dll'));
+  const hasVersionJson = files.some(file => file.isFile() && file.name === 'version.json');
+  if (hasDll && hasVersionJson) {
+    return dir;
+  }
+
+  // Recursively search subdirectories
+  for (const file of files) {
+    if (file.isDirectory()) {
+      const nestedDir = path.join(dir, file.name);
+      const pluginFolder = findPluginFolder(nestedDir);
+      if (pluginFolder) {
+        return pluginFolder;
+      }
     }
   }
 
-  entries.forEach(entry => {
-    let entryName = entry.entryName;
-    // Remove the common prefix if present
-    if (commonPrefix && entryName.startsWith(commonPrefix)) {
-      entryName = entryName.slice(commonPrefix.length);
-    }
-    if (!entryName) return; // skip root folder entry
+  // Fallback: If no folder is found, check if the current directory itself contains the required files
+  if (hasDll || hasVersionJson) {
+    console.warn(`Warning: Found partial match in ${dir}. Proceeding with this directory.`);
+    return dir;
+  }
 
-    const destPath = path.join(destDir, entryName);
-    if (entry.isDirectory) {
-      fs.mkdirSync(destPath, { recursive: true });
-    } else {
-      fs.mkdirSync(path.dirname(destPath), { recursive: true });
-      fs.writeFileSync(destPath, entry.getData());
-    }
-  });
+  return null;
+}
+
+// Helper: Move the folder directly from the .zip to the final plugin directory
+async function moveFolderFromZip(zipPath: string, finalDir: string): Promise<void> {
+  // Ensure the final directory exists
+  if (!fs.existsSync(finalDir)) {
+    const createDirCommand = `powershell -NoProfile -ExecutionPolicy Bypass -Command "New-Item -ItemType Directory -Path '${finalDir}'"`;
+    await runProcessElevated(createDirCommand);
+  }
+
+  // Extract the entire .zip to a temporary directory first
+  const tempExtractDir = path.join(app.getPath('temp'), `${path.basename(zipPath, '.zip')}_extract`);
+  if (fs.existsSync(tempExtractDir)) fs.rmSync(tempExtractDir, { recursive: true, force: true });
+  const extractCommand = `powershell -NoProfile -ExecutionPolicy Bypass -Command "Expand-Archive -Path '${zipPath}' -DestinationPath '${tempExtractDir}' -Force"`;
+  await runProcessElevated(extractCommand);
+
+  // Find the folder containing the required files
+  const pluginFolder = findPluginFolder(tempExtractDir);
+  if (!pluginFolder) {
+    console.error(`Debug: Extracted files in ${tempExtractDir}:`, fs.readdirSync(tempExtractDir, { withFileTypes: true }));
+    throw new Error("No folder containing both .dll and version.json was found in the extracted .zip.");
+  }
+
+  // Move the contents of the identified folder to the final directory
+  const pluginFiles = fs.readdirSync(pluginFolder);
+  for (const file of pluginFiles) {
+    const sourcePath = path.join(pluginFolder, file);
+    const targetPath = path.join(finalDir, file);
+    const moveCommand = `powershell -NoProfile -ExecutionPolicy Bypass -Command "Move-Item -Path '${sourcePath}' -Destination '${targetPath}' -Force"`;
+    await runProcessElevated(moveCommand);
+  }
+
+  // Clean up the temporary extraction directory
+  if (fs.existsSync(tempExtractDir)) {
+    fs.rmSync(tempExtractDir, { recursive: true, force: true });
+  }
 }
 
